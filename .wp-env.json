@@ -1,0 +1,14 @@
+{
+  "core": null,
+  "phpVersion": "8.5",
+  "plugins": [
+    "."
+  ],
+  "env": {
+    "development": {
+      "mappings": {
+        "wp-content/mu-plugins/gds-rate-limiter-e2e.php": "./tests/e2e/mu-plugin.php"
+      }
+    }
+  }
+}

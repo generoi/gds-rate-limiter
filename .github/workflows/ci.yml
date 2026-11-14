@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - run: composer install --no-interaction --prefer-dist
+
+      - name: Lint
+        run: composer lint
+
+      - name: Static analysis
+        run: composer stan
+
+  unit:
+    name: unit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest the package supports and the newest.
+        php: ['8.1', '8.5']
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # APCu on for the CLI and phpredis, so the store tests run against
+      # the real thing.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: apcu, redis
+          ini-values: apc.enable_cli=1
+          coverage: none
+
+      - run: composer install --no-interaction --prefer-dist
+
+      - name: Unit and store tests
+        run: composer test:unit -- --fail-on-skipped
+        env:
+          REDIS_HOST: 127.0.0.1
+
+  wordpress:
+    runs-on: ubuntu-latest
+    # Bounded so a wedged wp-env start cannot hold a runner for GitHub's
+    # 360-minute default.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: composer install --no-interaction --prefer-dist
+      - run: npm ci --no-audit --no-fund
+
+      - name: Start WordPress
+        run: npx wp-env start
+
+      - name: Integration tests
+        run: npm run test:php
+
+      - name: End-to-end tests
+        run: npm run test:e2e
