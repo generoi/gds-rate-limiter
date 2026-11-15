@@ -70,6 +70,12 @@ final class Options
 
     public int $edgeWindow = 1800;
 
+    /**
+     * Seconds robots.txt asks known crawlers to wait between requests (see
+     * CrawlDelay); null works it out from `limit`, 0 turns it off.
+     */
+    public ?int $crawlDelay = null;
+
     public bool $disable = false;
 
     /** @var (callable(string):void)|null Where log lines go; null for error_log. */
@@ -98,6 +104,7 @@ final class Options
                 default => (int) $value,
             };
         }
+        $o->crawlDelay ??= CrawlDelay::seconds($o);
 
         return $o;
     }
