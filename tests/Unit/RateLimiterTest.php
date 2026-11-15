@@ -70,6 +70,55 @@ class RateLimiterTest extends TestCase
         $this->assertSame('surge', $this->responder->rejected[0]->reason);
     }
 
+    /** The cache warmer's requests aren't counted, by IP or site-wide. */
+    public function test_a_cache_warm_request_is_not_counted(): void
+    {
+        $l = $this->limiter(['bypass_token' => 'secret', 'site_limit' => 100]);
+        for ($i = 0; $i < 10; $i++) {
+            $l->check(['HTTP_X_CACHE_WARM' => 'secret'] + self::SERVER);
+        }
+
+        $this->assertSame([], $this->responder->rejected);
+        $this->assertSame(0, $l->limiter->count('203.0.113.9'));
+        $this->assertSame(0, $l->limiter->count('site'));
+    }
+
+    /** While the site is busy a warm request gets a 429, which stops the warmer's run. */
+    public function test_a_cache_warm_request_is_refused_while_the_site_is_busy(): void
+    {
+        $l = $this->limiter(['bypass_token' => 'secret', 'limit' => 100, 'site_limit' => 4]);
+        $warm = ['HTTP_X_CACHE_WARM' => 'secret'] + self::SERVER;
+        foreach (['198.51.100.1', '198.51.100.2'] as $ip) {
+            $l->check(['REMOTE_ADDR' => $ip] + self::SERVER);
+        }
+        $l->check($warm);
+        $this->assertSame([], $this->responder->rejected, 'half the site limit is not busy yet');
+
+        $l->check(['REMOTE_ADDR' => '198.51.100.3'] + self::SERVER);
+        $l->check($warm);
+
+        $this->assertCount(1, $this->responder->rejected);
+        $this->assertSame(['busy', 60], [$this->responder->rejected[0]->reason, $this->responder->rejected[0]->retryAfter]);
+        $this->assertSame([], $this->logged);
+    }
+
+    public function test_a_wrong_or_missing_warm_token_is_counted(): void
+    {
+        $l = $this->limiter(['bypass_token' => 'secret']);
+        $l->check(['HTTP_X_CACHE_WARM' => 'guess'] + self::SERVER);
+        $l->check(['HTTP_X_CACHE_WARM' => ''] + self::SERVER);
+
+        $this->assertSame(2, $l->limiter->count('203.0.113.9'));
+    }
+
+    public function test_the_warm_token_is_the_bypass_token_when_set(): void
+    {
+        $this->assertSame('secret', $this->limiter(['bypass_token' => 'secret'])->warmToken());
+        if (! defined('AUTH_KEY')) {
+            $this->assertSame('', $this->limiter()->warmToken(), 'no token without AUTH_KEY or a bypass_token');
+        }
+    }
+
     public function test_a_login_cookie_waits_for_wordpress_and_a_logged_in_user_passes(): void
     {
         $l = $this->limiter();

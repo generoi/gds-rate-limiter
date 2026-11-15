@@ -151,6 +151,21 @@ wp rate-limit blocklist
 `status` and `flush` see Redis and the object cache; APCu lives in the web
 server's memory, which WP-CLI doesn't share.
 
+## Cache warming
+
+[sage-cachetags](https://github.com/generoi/sage-cachetags)' warmer
+(`wp cachetags warm`) re-requests purged pages from the server itself. The
+mu-plugin adds an `X-Cache-Warm` header to its requests through the
+`cachetags/warm/request-headers` filter, carrying `bypass_token` when it's set
+and otherwise a token derived from `AUTH_KEY`, so WP-CLI and the web server
+agree on it without configuration.
+
+A request with that token isn't counted, by IP or site-wide. While the site is
+busy (surging, or past half of `site_limit`) it gets a 429 instead, which makes
+the warmer stop its run until the next one. Without a `site_limit` the warmer is
+never held back. Nothing else changes: sage-cachetags knows nothing about the
+limiter, and a site without the warmer never sends the header.
+
 ## Development
 
 ```sh

@@ -11,6 +11,13 @@ namespace GeneroWP\RateLimiter;
  */
 final class RateLimiter
 {
+    /**
+     * Sent by sage-cachetags' warmer (see Plugin): a request carrying the warm
+     * token isn't counted, and while the site is busy it gets a 429, which
+     * makes the warmer stop its run.
+     */
+    public const WARM_HEADER = 'X-Cache-Warm';
+
     private static ?self $instance = null;
 
     public readonly Limiter $limiter;
@@ -96,6 +103,14 @@ final class RateLimiter
      */
     public function check(array $server): void
     {
+        if ($this->isWarming($server)) {
+            if ($this->busy()) {
+                $this->responder->reject(new Decision(false, $this->options->window, 'busy'), null);
+            }
+
+            return;
+        }
+
         $ip = $this->options->clientIp->resolve($server);
         if ($ip === null || Ip::matches($ip, $this->options->allow)) {
             return;
@@ -145,6 +160,45 @@ final class RateLimiter
         $this->responder->reject($decision, $decision->escalate ? function () use ($ip): void {
             $this->block($ip);
         } : null);
+    }
+
+    /**
+     * The token the cache warmer sends in WARM_HEADER: `bypass_token` when
+     * set, else one derived from AUTH_KEY, so WP-CLI and the web server agree
+     * on it without configuration. '' when there's neither.
+     */
+    public function warmToken(): string
+    {
+        if ($this->options->bypassToken !== '') {
+            return $this->options->bypassToken;
+        }
+
+        return defined('AUTH_KEY') && is_string(AUTH_KEY) && AUTH_KEY !== ''
+            ? hash_hmac('sha256', 'gds-rate-limiter/cache-warm', AUTH_KEY)
+            : '';
+    }
+
+    /**
+     * Too busy for the warmer: surging, or past half the site limit. Without a
+     * site limit the warmer is never held back.
+     */
+    public function busy(): bool
+    {
+        $o = $this->options;
+
+        return $o->siteLimit > 0
+            && ($this->limiter->surgeLeft() > 0 || $this->limiter->count('site') * 2 > $o->siteLimit);
+    }
+
+    /**
+     * @param  array<string,mixed>  $server
+     */
+    private function isWarming(array $server): bool
+    {
+        $token = $this->warmToken();
+        $sent = (string) ($server['HTTP_'.strtoupper(str_replace('-', '_', self::WARM_HEADER))] ?? '');
+
+        return $token !== '' && $sent !== '' && hash_equals($token, $sent);
     }
 
     /**

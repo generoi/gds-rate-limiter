@@ -43,6 +43,34 @@ class PluginTest extends WP_UnitTestCase
         $this->assertSame(1, (int) get_transient(CacheStore::GROUP.':203.0.113.9:bans'));
     }
 
+    /** sage-cachetags' warmer sends the warm token through this filter. */
+    public function test_the_cache_warmer_gets_the_warm_header(): void
+    {
+        $instance = new \ReflectionProperty(RateLimiter::class, 'instance');
+        $saved = $instance->getValue();
+        try {
+            RateLimiter::boot(['bypass_token' => 'secret', 'store' => new CacheStore]);
+
+            $headers = apply_filters('cachetags/warm/request-headers', ['User-Agent' => 'warmer']);
+
+            $this->assertSame(['User-Agent' => 'warmer', RateLimiter::WARM_HEADER => 'secret'], $headers);
+        } finally {
+            $instance->setValue(null, $saved);
+        }
+    }
+
+    public function test_without_a_limiter_the_warm_headers_are_untouched(): void
+    {
+        $instance = new \ReflectionProperty(RateLimiter::class, 'instance');
+        $saved = $instance->getValue();
+        $instance->setValue(null, null);
+        try {
+            $this->assertSame(['User-Agent' => 'warmer'], apply_filters('cachetags/warm/request-headers', ['User-Agent' => 'warmer']));
+        } finally {
+            $instance->setValue(null, $saved);
+        }
+    }
+
     private function priority(): ?int
     {
         global $wp_filter;
