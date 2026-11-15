@@ -109,7 +109,24 @@ final class RateLimiter
 
             return;
         }
+        if ($decision->surgeStarted > 0) {
+            $this->log(sprintf(
+                'Surge: %d requests in %ds over the site limit of %d; each IP gets %d a window for %ds',
+                $decision->surgeStarted,
+                $this->options->window,
+                $this->options->siteLimit,
+                $this->options->surgeLimit,
+                $this->options->surgeFor,
+            ));
+        }
         if ($decision->allowed) {
+            return;
+        }
+        if ($decision->reason === 'surge') {
+            // Not logged per request: a surge is many of them, and its start
+            // is logged once.
+            $this->responder->reject($decision, null);
+
             return;
         }
 

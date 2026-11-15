@@ -174,4 +174,90 @@ class LimiterTest extends TestCase
         $this->assertSame('subnet', $l->hit('2001:db8:1:2::3')->reason);
         $this->assertTrue($l->hit('2001:db8:1:3::1')->allowed);
     }
+
+    /**
+     * Many IPs each under the limit: going over site_limit starts a surge, and
+     * from then each IP gets only surge_limit a window.
+     */
+    public function test_a_crawl_spread_over_ips_starts_a_surge(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 10, 'surge_limit' => 2]);
+        foreach (['203.0.113.1', '203.0.113.2', '198.51.100.3', '192.0.2.4', '198.51.100.5'] as $ip) {
+            $this->hits($l, $ip, 2);
+        }
+
+        $start = $l->hit('192.0.2.6');
+        $this->assertTrue($start->allowed);
+        $this->assertSame(11, $start->surgeStarted);
+        $this->assertSame(300, $l->surgeLeft());
+
+        $d = $l->hit('203.0.113.1');
+        $this->assertSame([false, 'surge', 60], [$d->allowed, $d->reason, $d->retryAfter]);
+        $this->hits($l, '192.0.2.7', 2);
+        $this->assertSame('surge', $l->hit('192.0.2.7')->reason);
+        $this->assertSame(0, $l->hit('192.0.2.8')->surgeStarted, 'a surge starts once');
+    }
+
+    /** A surge refusal is no ban: the next window lets the IP back in. */
+    public function test_a_surge_refusal_is_no_ban(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 1, 'surge_limit' => 1]);
+        $this->hits($l, '203.0.113.1', 1);
+        $l->hit('203.0.113.2'); // starts the surge
+        $this->assertSame('surge', $l->hit('203.0.113.1')->reason);
+
+        $this->assertSame(0, $l->retryAfter('203.0.113.1'));
+        $this->assertSame(0, $l->bans('203.0.113.1'));
+        $this->now += 61;
+        $this->assertTrue($l->hit('203.0.113.1')->allowed);
+        $this->assertGreaterThan(0, $l->surgeLeft());
+    }
+
+    public function test_a_surge_ends_after_surge_for(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 1, 'surge_limit' => 1, 'surge_for' => 120]);
+        $l->hit('203.0.113.1');
+        $l->hit('203.0.113.2');
+
+        $this->now += 121;
+        $this->assertSame(0, $l->surgeLeft());
+        $this->assertTrue($l->hit('203.0.113.1')->allowed);
+        $this->assertTrue($l->hit('203.0.113.1')->allowed);
+    }
+
+    /** Only what reaches PHP counts: a crawler's 429s don't prolong a surge. */
+    public function test_refused_requests_dont_count_toward_the_site(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 3, 'surge_limit' => 1]);
+        foreach (['203.0.113.1', '203.0.113.2', '203.0.113.3', '203.0.113.4'] as $ip) {
+            $l->hit($ip);
+        }
+        for ($i = 0; $i < 20; $i++) {
+            $l->hit('203.0.113.1');
+        }
+
+        $this->assertSame(4, $l->count('site'));
+    }
+
+    public function test_surges_are_off_by_default(): void
+    {
+        $l = $this->limiter(['limit' => 1000, 'subnet_limit' => 0]);
+        for ($i = 0; $i < 200; $i++) {
+            $this->assertTrue($l->hit('203.0.113.'.($i % 50))->allowed);
+        }
+
+        $this->assertSame(0, $l->count('site'));
+        $this->assertSame(0, $l->surgeLeft());
+    }
+
+    /** An IP over the normal limit is still banned during a surge. */
+    public function test_the_limit_still_bans_during_a_surge(): void
+    {
+        $l = $this->limiter(['limit' => 3, 'site_limit' => 1, 'surge_limit' => 100]);
+        $l->hit('203.0.113.2');
+        $l->hit('203.0.113.3'); // starts the surge
+        $this->hits($l, '203.0.113.1', 3);
+
+        $this->assertSame('ip', $l->hit('203.0.113.1')->reason);
+    }
 }

@@ -57,6 +57,19 @@ class RateLimiterTest extends TestCase
         $this->assertSame(['[Rate Limit] IP: 203.0.113.9 | Retry-After: 120s | URI: /recipes/x/ | Method: GET | User-Agent: Crawler/1.0'], $this->logged);
     }
 
+    /** A surge's start is logged once; its refusals are answered, not logged. */
+    public function test_a_surge_is_logged_once_and_its_refusals_answered_quietly(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 2, 'surge_limit' => 1, 'surge_for' => 300]);
+        foreach (['203.0.113.1', '203.0.113.2', '203.0.113.3', '203.0.113.1', '203.0.113.1'] as $ip) {
+            $l->check(['REMOTE_ADDR' => $ip] + self::SERVER);
+        }
+
+        $this->assertSame(['[Rate Limit] Surge: 3 requests in 60s over the site limit of 2; each IP gets 1 a window for 300s'], $this->logged);
+        $this->assertCount(2, $this->responder->rejected);
+        $this->assertSame('surge', $this->responder->rejected[0]->reason);
+    }
+
     public function test_a_login_cookie_waits_for_wordpress_and_a_logged_in_user_passes(): void
     {
         $l = $this->limiter();

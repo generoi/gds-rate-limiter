@@ -36,6 +36,22 @@ final class Options
     /** A subnet's ban: short, and never doubled or sent to the edge. */
     public int $subnetBan = 300;
 
+    /**
+     * Requests from all IPs together per window before the site surges; 0
+     * turns surges off. Set it under what PHP can serve.
+     */
+    public int $siteLimit = 0;
+
+    /**
+     * Requests per IP per window while the site surges: about what one person
+     * browsing makes. Over it a request gets a 429 until the window ends, with
+     * no ban, so a real visitor loses at most a window.
+     */
+    public int $surgeLimit = 6;
+
+    /** How long a surge lasts once the site goes over site_limit, in seconds. */
+    public int $surgeFor = 300;
+
     /** @var list<string> Addresses and CIDR ranges never limited. */
     public array $allow = [];
 

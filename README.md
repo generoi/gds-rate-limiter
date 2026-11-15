@@ -36,9 +36,20 @@ RateLimiter::boot([
 4. With `edge` blocklists set, an IP's `edge_after`th ban within `edge_window`
    adds it to them, after its 429 has been sent. Only single addresses ever
    reach the edge, and they stay until `wp rate-limit unblock`.
+5. With `site_limit` set, the requests let through from all IPs together are
+   counted too: for a crawl spread over addresses in different networks, each
+   under `limit`. Going over `site_limit` in a window starts a surge of
+   `surge_for` seconds, during which each IP gets only `surge_limit` a window,
+   about what one person browsing makes. Over that is a 429 until the window
+   ends, not a ban: no doubling and no edge, so a real visitor caught in a surge
+   loses at most a window. Set `site_limit` from the site's own traffic, under
+   what its PHP workers can serve; refused requests don't count toward it, so a
+   surge ends once the load does.
 
 The 429 has `Retry-After` and `Cache-Control: no-store, private`, and one line
 goes to the PHP error log: `[Rate Limit] IP: … | Retry-After: …s | URI: … | Method: … | User-Agent: …`.
+A surge logs once when it starts, `[Rate Limit] Surge: … requests in …s over
+the site limit of …; each IP gets … a window for …s`, and not per refusal.
 
 Never limited: logged-in users (a request with a login cookie waits until
 WordPress can check it, then runs first on `plugins_loaded`), `allow`ed
@@ -62,6 +73,9 @@ shoppers, whose session cookie skips the page cache.
 | `escalation_window` | 86400 | |
 | `subnet_limit` | 150 | 0 turns it off |
 | `subnet_ban` | 300 | |
+| `site_limit` | 0 | Requests from all IPs per window before a surge; 0 turns surges off |
+| `surge_limit` | 6 | Requests per IP per window during a surge |
+| `surge_for` | 300 | Seconds a surge lasts |
 | `allow` | `[]` | Addresses and CIDR ranges |
 | `bypass_token` | `''` | |
 | `store` | `ApcuStore` if APCu is on, else `CacheStore` | See below |

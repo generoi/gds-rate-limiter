@@ -54,6 +54,10 @@ final class Cli
             $subnetRetry = $l->retryAfter($subnet);
             WP_CLI::line(sprintf('Subnet %s: %d/%d per %ds%s', $subnet, $l->count($subnet), $o->subnetLimit, $o->window, $subnetRetry > 0 ? ", banned {$subnetRetry}s" : ''));
         }
+        if ($o->siteLimit > 0) {
+            $surge = $l->surgeLeft();
+            WP_CLI::line(sprintf('Site: %d/%d per %ds%s', $l->count('site'), $o->siteLimit, $o->window, $surge > 0 ? ", surging {$surge}s more ({$o->surgeLimit} per IP)" : ''));
+        }
         WP_CLI::line(sprintf('Edge blocklists: %s', $o->edge === [] ? 'none' : implode(', ', array_map(fn ($e) => $e->name(), $o->edge))));
     }
 

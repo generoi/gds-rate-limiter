@@ -10,6 +10,11 @@ use Closure;
  * ban within `escalation_window` twice as long as the last, up to `max_ban`;
  * then over `subnet_limit` bans the subnet for `subnet_ban`. The `edge_after`th
  * ban within `edge_window` sends the IP to the edge, when edges are set.
+ *
+ * With `site_limit` set, the requests let through from all IPs are counted
+ * too; going over starts a surge of `surge_for` seconds, during which each IP
+ * gets only `surge_limit` a window. Over that is a 429 until the window ends,
+ * not a ban: no doubling, no edge, so a real visitor loses at most a window.
  */
 final class Limiter
 {
@@ -55,7 +60,31 @@ final class Limiter
             }
         }
 
+        if ($o->siteLimit <= 0) {
+            return new Decision(true, 0, '', $ip, $count);
+        }
+        $surging = $o->store->get('site:surge') !== null;
+        if ($surging && $count > $o->surgeLimit) {
+            return new Decision(false, $o->window, 'surge', $ip, $count);
+        }
+        // Only what reaches PHP counts, so a crawler's 429s don't keep the
+        // site surging once the load is gone.
+        $site = $o->store->increment('site:count', $o->window);
+        if (! $surging && $site > $o->siteLimit) {
+            $o->store->set('site:surge', $now + $o->surgeFor, $o->surgeFor);
+
+            return new Decision(true, 0, '', $ip, $count, false, $site);
+        }
+
         return new Decision(true, 0, '', $ip, $count);
+    }
+
+    /** Seconds left of the site's surge, 0 when it isn't surging. */
+    public function surgeLeft(?int $now = null): int
+    {
+        $until = $this->options->store->get('site:surge');
+
+        return $until === null ? 0 : max(0, $until - ($now ?? ($this->clock)()));
     }
 
     /** Seconds left of $key's ban, 0 when it has none. */
