@@ -17,6 +17,13 @@ final class Plugin
             RateLimiter::instance()?->late($_SERVER, is_user_logged_in());
         }, PHP_INT_MIN);
 
+        // Last, so it follows the SEO plugin's rules.
+        add_filter('robots_txt', function ($output) {
+            $seconds = RateLimiter::instance()?->options->crawlDelay ?? 0;
+
+            return $seconds > 0 ? CrawlDelay::append((string) $output, $seconds) : $output;
+        }, PHP_INT_MAX);
+
         add_filter('cachetags/warm/request-headers', function ($headers) {
             $token = RateLimiter::instance()?->warmToken() ?? '';
 

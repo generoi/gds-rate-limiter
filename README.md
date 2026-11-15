@@ -83,10 +83,25 @@ shoppers, whose session cookie skips the page cache.
 | `edge` | `[]` | `Fastly`, `Cloudflare` |
 | `edge_after` | 3 | |
 | `edge_window` | 1800 | |
+| `crawl_delay` | from `limit` | Seconds robots.txt asks known crawlers to wait; 0 turns it off |
 | `disable` | `false` | |
 | `log` | `error_log` | A callable taking the line |
 
 An unknown option is an error, so a typo can't leave a default in place.
+
+## Crawl delay
+
+Declared crawlers such as ClaudeBot, GPTBot or bingbot rotate IPs, and each
+one can go over a low `limit` by itself. So robots.txt asks them (the list is
+`CrawlDelay::USER_AGENTS`) to wait `crawl_delay` seconds between requests: by
+default enough to keep them at two thirds of `limit`, 5 s at 20 and 2 s at 45.
+Googlebot ignores Crawl-delay; Bing and the AI crawlers honour it, so a long
+delay slows how fast they pick up new pages.
+
+A crawler follows only the group that names it, so the group repeats the
+`User-agent: *` rules. It's added last on WordPress's `robots_txt` filter,
+after Yoast or The SEO Framework, so a site's own crawl-delay code should go.
+A physical `robots.txt` in the web root bypasses WordPress and this.
 
 ## Stores
 
