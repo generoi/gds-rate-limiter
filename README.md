@@ -115,7 +115,8 @@ RateLimiter::boot([
 
 Which directory is writable, and readable for you, is per host. On Kinsta the
 site's `logs/` directory beside `public/` is the likely place, but that is
-unverified here: check it before relying on it.
+unverified here: check it before relying on it. The file is never rotated or
+capped, so rotate it (logrotate, or the host's) on a busy site.
 
 ## Crawl delay
 
