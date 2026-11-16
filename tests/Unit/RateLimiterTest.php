@@ -57,6 +57,37 @@ class RateLimiterTest extends TestCase
         $this->assertSame(['[Rate Limit] IP: 203.0.113.9 | Retry-After: 120s | URI: /recipes/x/ | Method: GET | User-Agent: Crawler/1.0'], $this->logged);
     }
 
+    /** With log_file the routine lines leave error_log; failures and an unwritable file stay on it. */
+    public function test_log_file_takes_routine_lines_and_failures_stay_on_error_log(): void
+    {
+        $dir = sys_get_temp_dir().'/gds-rl-'.bin2hex(random_bytes(4));
+        mkdir($dir);
+        $file = $dir.'/rate-limit.log';
+        $errors = $dir.'/php-errors.log';
+        $previous = ini_get('error_log');
+        ini_set('error_log', $errors);
+        try {
+            $l = $this->limiter(['log' => null, 'log_file' => $file]);
+            $this->requests($l, 3);
+            $l->log('Store error: down', failure: true);
+
+            $this->assertMatchesRegularExpression(
+                '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \[Rate Limit\] IP: 203\.0\.113\.9 \| Retry-After: 120s .*\n$/',
+                (string) file_get_contents($file),
+            );
+            $this->assertStringContainsString('[Rate Limit] Store error: down', (string) file_get_contents($errors));
+            $this->assertStringNotContainsString('IP: 203.0.113.9', (string) file_get_contents($errors));
+
+            $unwritable = $this->limiter(['log' => null, 'log_file' => $dir.'/missing/rate-limit.log']);
+            $unwritable->log('Surge: x');
+            $this->assertStringContainsString('[Rate Limit] Surge: x', (string) file_get_contents($errors));
+        } finally {
+            ini_set('error_log', (string) $previous);
+            array_map('unlink', glob($dir.'/*') ?: []);
+            rmdir($dir);
+        }
+    }
+
     /** A surge's start is logged once; its refusals are answered, not logged. */
     public function test_a_surge_is_logged_once_and_its_refusals_answered_quietly(): void
     {
