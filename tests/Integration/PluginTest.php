@@ -89,6 +89,28 @@ class PluginTest extends WP_UnitTestCase
         }
     }
 
+    /** On a network, one site's requests to another carry it too. */
+    public function test_requests_to_another_site_on_the_network_get_the_self_header(): void
+    {
+        if (! is_multisite()) {
+            $this->markTestSkipped('Needs a multisite test install.');
+        }
+        $instance = new \ReflectionProperty(RateLimiter::class, 'instance');
+        $saved = $instance->getValue();
+        try {
+            $limiter = RateLimiter::boot(['bypass_token' => 'secret', 'store' => new CacheStore]);
+            self::factory()->blog->create(['domain' => 'other.example.org', 'path' => '/']);
+
+            $sibling = apply_filters('http_request_args', ['headers' => []], 'https://other.example.org/wp-json/');
+            $stranger = apply_filters('http_request_args', ['headers' => []], 'https://elsewhere.example.org/');
+
+            $this->assertSame([RateLimiter::SELF_HEADER => $limiter?->selfToken()], $sibling['headers']);
+            $this->assertSame([], $stranger['headers']);
+        } finally {
+            $instance->setValue(null, $saved);
+        }
+    }
+
     private function priority(): ?int
     {
         global $wp_filter;
