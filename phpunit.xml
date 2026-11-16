@@ -1,19 +1,14 @@
 <?xml version="1.0"?>
-<!-- In wp-env's tests site: the cache store on WordPress's transients and the
-     mu-plugin's check once plugins have loaded. -->
+<!-- Without WordPress: the limiter's logic, the client IP sources, the edge
+     blocklists' requests, and the APCu and Redis stores where they're set up. -->
 <phpunit
-    bootstrap="tests/bootstrap.php"
+    bootstrap="vendor/autoload.php"
     colors="true"
     beStrictAboutTestsThatDoNotTestAnything="true"
 >
     <testsuites>
-        <testsuite name="integration">
-            <directory suffix="Test.php">tests/Integration</directory>
+        <testsuite name="unit">
+            <directory suffix="Test.php">tests/Unit</directory>
         </testsuite>
     </testsuites>
-
-    <php>
-        <!-- wp-env path. -->
-        <env name="WP_PHPUNIT__TESTS_CONFIG" value="/var/www/html/wp-config.php" />
-    </php>
 </phpunit>

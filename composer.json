@@ -40,8 +40,8 @@
     "scripts": {
         "lint": "pint --test",
         "lint:fix": "pint",
-        "test:unit": "phpunit -c phpunit.unit.xml",
-        "test:wp-env": "npx wp-env run tests-cli --env-cwd=wp-content/plugins/gds-rate-limiter php vendor/bin/phpunit",
+        "test:unit": "phpunit",
+        "test:wp-env": "npx wp-env run tests-cli --env-cwd=wp-content/plugins/gds-rate-limiter php vendor/bin/phpunit -c phpunit.integration.xml",
         "stan": "./vendor/bin/phpstan analyse --memory-limit=1G"
     },
     "config": {
