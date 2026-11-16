@@ -166,6 +166,43 @@ class RateLimiterTest extends TestCase
         $this->assertCount(1, $this->responder->rejected);
     }
 
+    public function test_api_credentials_wait_for_wordpress_and_a_valid_one_passes(): void
+    {
+        $l = $this->limiter();
+        $basic = self::SERVER + ['HTTP_AUTHORIZATION' => 'Basic eDp5'];
+        for ($i = 0; $i < 5; $i++) {
+            $l->early($basic, []);
+            $this->assertTrue($l->awaitsApiAuth());
+            $l->late($basic, loggedIn: true);
+        }
+        $this->assertSame([], $this->responder->rejected);
+
+        // Credentials WordPress didn't accept are counted.
+        for ($i = 0; $i < 3; $i++) {
+            $l->early($basic, []);
+            $l->late($basic, loggedIn: false);
+        }
+        $this->assertCount(1, $this->responder->rejected);
+    }
+
+    public function test_what_counts_as_api_credentials(): void
+    {
+        $this->assertTrue(RateLimiter::hasCredentials(['HTTP_AUTHORIZATION' => 'Basic eDp5']));
+        $this->assertTrue(RateLimiter::hasCredentials(['REDIRECT_HTTP_AUTHORIZATION' => 'Basic eDp5']));
+        $this->assertTrue(RateLimiter::hasCredentials(['PHP_AUTH_USER' => 'x']));
+        $this->assertTrue(RateLimiter::hasCredentials(['QUERY_STRING' => 'per_page=10&consumer_key=ck_x']));
+        $this->assertFalse(RateLimiter::hasCredentials(['QUERY_STRING' => 'consumer_key=']));
+        $this->assertFalse(RateLimiter::hasCredentials(self::SERVER));
+    }
+
+    public function test_a_login_cookie_alone_doesnt_await_api_auth(): void
+    {
+        $l = $this->limiter();
+        $l->early(self::SERVER, ['wordpress_logged_in_abc' => 'x']);
+
+        $this->assertFalse($l->awaitsApiAuth());
+    }
+
     public function test_late_only_checks_what_early_left(): void
     {
         $l = $this->limiter();
