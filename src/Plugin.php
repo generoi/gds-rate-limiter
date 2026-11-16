@@ -4,8 +4,9 @@ namespace GeneroWP\RateLimiter;
 
 /**
  * The mu-plugin's part: the checks RateLimiter::boot() left for when
- * WordPress can tell a logged-in user, the WP-CLI command, and the header
- * sage-cachetags' warmer sends so the limiter knows its requests.
+ * WordPress can tell a logged-in user, the WP-CLI command, the header
+ * sage-cachetags' warmer sends so the limiter knows its requests, and the one
+ * on WordPress's own requests to the site.
  */
 final class Plugin
 {
@@ -30,8 +31,35 @@ final class Plugin
             return $token === '' ? $headers : [...(array) $headers, RateLimiter::WARM_HEADER => $token];
         });
 
+        // WordPress's requests to the site itself (loopbacks, cron spawning)
+        // leave through the server's outbound address, shared on some hosts
+        // and liable to change, so they're told apart by a token rather than
+        // by address. Only to the site's own host, so the token stays there.
+        add_filter('http_request_args', function ($args, $url) {
+            $token = RateLimiter::instance()?->selfToken() ?? '';
+            if ($token === '' || ! is_array($args) || ! self::isOwnHost((string) $url)) {
+                return $args;
+            }
+            $headers = $args['headers'] ?? [];
+            if (is_array($headers)) {
+                $args['headers'] = [...$headers, RateLimiter::SELF_HEADER => $token];
+            }
+
+            return $args;
+        }, 10, 2);
+
         if (defined('WP_CLI') && WP_CLI) {
             Cli::register();
         }
+    }
+
+    private static function isOwnHost(string $url): bool
+    {
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+
+        return $host !== '' && in_array($host, [
+            strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)),
+            strtolower((string) wp_parse_url(site_url(), PHP_URL_HOST)),
+        ], true);
     }
 }

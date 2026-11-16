@@ -18,6 +18,13 @@ final class RateLimiter
      */
     public const WARM_HEADER = 'X-Cache-Warm';
 
+    /**
+     * Sent on WordPress's own requests to the site (see Plugin): loopbacks,
+     * cron spawning. A request carrying the self token is never limited, so
+     * the server's outbound address needn't be in `allow`.
+     */
+    public const SELF_HEADER = 'X-Rate-Limit-Self';
+
     private static ?self $instance = null;
 
     public readonly Limiter $limiter;
@@ -103,7 +110,10 @@ final class RateLimiter
      */
     public function check(array $server): void
     {
-        if ($this->isWarming($server)) {
+        if (self::sent($server, self::SELF_HEADER, $this->selfToken())) {
+            return;
+        }
+        if (self::sent($server, self::WARM_HEADER, $this->warmToken())) {
             if ($this->busy()) {
                 $this->responder->reject(new Decision(false, $this->options->window, 'busy'), null);
             }
@@ -173,9 +183,27 @@ final class RateLimiter
             return $this->options->bypassToken;
         }
 
-        return defined('AUTH_KEY') && is_string(AUTH_KEY) && AUTH_KEY !== ''
-            ? hash_hmac('sha256', 'gds-rate-limiter/cache-warm', AUTH_KEY)
-            : '';
+        return self::derived('gds-rate-limiter/cache-warm', self::authKey());
+    }
+
+    /**
+     * The token in SELF_HEADER, derived from `bypass_token` when set, else
+     * from AUTH_KEY. '' when there's neither. `wp rate-limit token` prints it
+     * for scripts that request the site from the server.
+     */
+    public function selfToken(): string
+    {
+        return self::derived('gds-rate-limiter/self', $this->options->bypassToken !== '' ? $this->options->bypassToken : self::authKey());
+    }
+
+    private static function authKey(): string
+    {
+        return defined('AUTH_KEY') && is_string(AUTH_KEY) ? AUTH_KEY : '';
+    }
+
+    private static function derived(string $purpose, string $key): string
+    {
+        return $key === '' ? '' : hash_hmac('sha256', $purpose, $key);
     }
 
     /**
@@ -193,10 +221,9 @@ final class RateLimiter
     /**
      * @param  array<string,mixed>  $server
      */
-    private function isWarming(array $server): bool
+    private static function sent(array $server, string $header, string $token): bool
     {
-        $token = $this->warmToken();
-        $sent = (string) ($server['HTTP_'.strtoupper(str_replace('-', '_', self::WARM_HEADER))] ?? '');
+        $sent = (string) ($server['HTTP_'.strtoupper(str_replace('-', '_', $header))] ?? '');
 
         return $token !== '' && $sent !== '' && hash_equals($token, $sent);
     }

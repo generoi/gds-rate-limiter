@@ -30,7 +30,8 @@ final class Cli
                 'block' => $cli->block($args),
                 'unblock' => $cli->unblock($args),
                 'blocklist' => $cli->blocklist(),
-                default => WP_CLI::error('Usage: wp rate-limit status <ip> | flush | block <ip> | unblock <ip> | blocklist'),
+                'token' => $cli->token(),
+                default => WP_CLI::error('Usage: wp rate-limit status <ip> | flush | block <ip> | unblock <ip> | blocklist | token'),
             };
         });
     }
@@ -107,6 +108,18 @@ final class Cli
             }
         }
         WP_CLI::line($ips === [] ? 'The blocklist is empty.' : implode("\n", array_keys($ips)));
+    }
+
+    /**
+     * The self token, for a script that requests the site from the server:
+     * `curl -H "X-Rate-Limit-Self: $(wp rate-limit token)" …`.
+     */
+    public function token(): void
+    {
+        $token = $this->limiter->selfToken();
+        $token === ''
+            ? WP_CLI::error('No token: set AUTH_KEY or `bypass_token`.')
+            : WP_CLI::line($token);
     }
 
     /**
