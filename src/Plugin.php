@@ -34,7 +34,8 @@ final class Plugin
         // WordPress's requests to the site itself (loopbacks, cron spawning)
         // leave through the server's outbound address, shared on some hosts
         // and liable to change, so they're told apart by a token rather than
-        // by address. Only to the site's own host, so the token stays there.
+        // by address. Only to the site's own host (on a network, any of its
+        // sites': they share the key), so the token stays there.
         add_filter('http_request_args', function ($args, $url) {
             $token = RateLimiter::instance()?->selfToken() ?? '';
             if ($token === '' || ! is_array($args) || ! self::isOwnHost((string) $url)) {
@@ -57,9 +58,20 @@ final class Plugin
     {
         $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
 
-        return $host !== '' && in_array($host, [
+        if ($host === '') {
+            return false;
+        }
+        if (in_array($host, [
             strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)),
             strtolower((string) wp_parse_url(site_url(), PHP_URL_HOST)),
-        ], true);
+        ], true)) {
+            return true;
+        }
+
+        return is_multisite() && get_sites([
+            'domain' => $host,
+            'network_id' => get_current_network_id(),
+            'count' => true,
+        ]) > 0;
     }
 }
