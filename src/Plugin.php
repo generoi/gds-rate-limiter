@@ -14,9 +14,7 @@ final class Plugin
     {
         // First on plugins_loaded: pluggable.php (is_user_logged_in) is in,
         // nothing has rendered yet.
-        add_action('plugins_loaded', function (): void {
-            RateLimiter::instance()?->late($_SERVER, is_user_logged_in());
-        }, PHP_INT_MIN);
+        add_action('plugins_loaded', fn () => self::checkDeferred(), PHP_INT_MIN);
 
         // Last, so it follows the SEO plugin's rules.
         add_filter('robots_txt', function ($output) {
@@ -52,6 +50,44 @@ final class Plugin
         if (defined('WP_CLI') && WP_CLI) {
             Cli::register();
         }
+    }
+
+    /**
+     * What RateLimiter::early() left. Application passwords and WooCommerce
+     * keys authenticate only once WordPress serves the REST API: its server
+     * drops the user cached before then and authenticates again just ahead of
+     * rest_authentication_errors, so those requests are checked there, last.
+     */
+    private static function checkDeferred(): void
+    {
+        if (! RateLimiter::instance()?->awaitsApiAuth() || ! self::isRestRequest()) {
+            self::checkUnlessLoggedIn();
+
+            return;
+        }
+        add_filter('rest_authentication_errors', function ($result) {
+            self::checkUnlessLoggedIn();
+
+            return $result;
+        }, PHP_INT_MAX);
+        // A REST-looking URL that WordPress didn't serve as REST.
+        add_action('wp', fn () => self::checkUnlessLoggedIn(), PHP_INT_MIN);
+    }
+
+    private static function checkUnlessLoggedIn(): void
+    {
+        RateLimiter::instance()?->late($_SERVER, is_user_logged_in());
+    }
+
+    private static function isRestRequest(): bool
+    {
+        if (isset($_GET['rest_route'])) {
+            return true;
+        }
+        $path = (string) wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+        $home = rtrim((string) wp_parse_url(home_url('/'), PHP_URL_PATH), '/');
+
+        return str_starts_with($path, $home.'/'.rest_get_url_prefix().'/');
     }
 
     private static function isOwnHost(string $url): bool

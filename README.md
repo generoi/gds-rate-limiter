@@ -52,16 +52,20 @@ A surge logs once when it starts, `[Rate Limit] Surge: … requests in …s over
 the site limit of …; each IP gets … a window for …s`, and not per refusal.
 
 Never limited: logged-in users (a request with a login cookie waits until
-WordPress can check it, then runs first on `plugins_loaded`), `allow`ed
-addresses and ranges, a `rate_limit_bypass` cookie equal to `bypass_token`
+WordPress can check it, then runs first on `plugins_loaded`), REST requests
+with a valid application password or WooCommerce key (checked last on
+`rest_authentication_errors`, once the REST server has authenticated them;
+wrong credentials are counted), `allow`ed addresses and ranges, a
+`rate_limit_bypass` cookie equal to `bypass_token`
 (for e2e runs against production), WP-CLI, WordPress's own requests to the
 site (see below), and private or reserved addresses.
 A store that fails lets requests through, and so do options `boot()` can't
 read (logged as `[Rate Limit] Not booted: …`).
 
 Counted like any visitor: REST or admin-ajax clients without a login cookie
-(an integration polling the site may need an `allow` entry), and WooCommerce
-shoppers, whose session cookie skips the page cache.
+or valid API credentials (an integration polling the site anonymously may
+need an `allow` entry), and WooCommerce shoppers, whose session cookie skips
+the page cache.
 
 ## Options
 
@@ -79,6 +83,7 @@ shoppers, whose session cookie skips the page cache.
 | `surge_for` | 300 | Seconds a surge lasts |
 | `allow` | `[]` | Addresses and CIDR ranges |
 | `bypass_token` | `''` | |
+| `trust_api_credentials` | `true` | REST requests with a valid application password or WooCommerce key aren't limited; `false` counts them |
 | `store` | `ApcuStore` if APCu is on, else `CacheStore` | See below |
 | `client_ip` | `RemoteAddr` | See below |
 | `edge` | `[]` | `Fastly`, `Cloudflare` |

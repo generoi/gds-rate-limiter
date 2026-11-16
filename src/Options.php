@@ -58,6 +58,12 @@ final class Options
     /** A `rate_limit_bypass` cookie with this value skips the limiter (e2e runs). */
     public string $bypassToken = '';
 
+    /**
+     * REST requests with a valid application password or WooCommerce key
+     * aren't limited, like logged-in users. False counts them like visitors.
+     */
+    public bool $trustApiCredentials = true;
+
     public Store $store;
 
     public ClientIp $clientIp;
@@ -99,7 +105,7 @@ final class Options
                 'allow' => array_values(array_map('strval', (array) $value)),
                 'edge' => array_values((array) $value),
                 'bypassToken' => (string) $value,
-                'disable' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+                'disable', 'trustApiCredentials' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'store', 'clientIp', 'log' => $value,
                 default => (int) $value,
             };

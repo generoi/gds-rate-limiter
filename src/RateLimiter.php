@@ -5,9 +5,11 @@ namespace GeneroWP\RateLimiter;
 /**
  * The site's limiter: booted from config/application.php with its options,
  * it checks a request before WordPress loads. A request with a login cookie
- * waits until WordPress can tell whether it's a logged-in user (who is never
+ * or API credentials (an application password, a WooCommerce key) waits
+ * until WordPress can tell whether it's a logged-in user (who is never
  * limited), and so does every request when the store needs WordPress; the
- * mu-plugin runs those on plugins_loaded.
+ * mu-plugin runs those on plugins_loaded, or for credentials on a REST
+ * request once WordPress serves it.
  */
 final class RateLimiter
 {
@@ -30,6 +32,8 @@ final class RateLimiter
     public readonly Limiter $limiter;
 
     private bool $deferred = false;
+
+    private bool $awaitsApiAuth = false;
 
     /**
      * Options that can't be read (a typo, a wrong type) are logged and leave
@@ -80,12 +84,22 @@ final class RateLimiter
         if ($this->skipped($cookies)) {
             return;
         }
-        if ($this->options->store->needsWordPress() || self::hasLoginCookie($cookies)) {
+        $this->awaitsApiAuth = $this->options->trustApiCredentials && self::hasCredentials($server);
+        if ($this->awaitsApiAuth || $this->options->store->needsWordPress() || self::hasLoginCookie($cookies)) {
             $this->deferred = true;
 
             return;
         }
         $this->check($server);
+    }
+
+    /**
+     * Left by early() for API credentials, which WordPress checks only once
+     * it's serving the REST API.
+     */
+    public function awaitsApiAuth(): bool
+    {
+        return $this->deferred && $this->awaitsApiAuth;
     }
 
     /**
@@ -271,6 +285,25 @@ final class RateLimiter
         }
 
         return false;
+    }
+
+    /**
+     * Basic auth (application passwords, WooCommerce keys) or WooCommerce's
+     * consumer_key in the query string. Whether they're valid is WordPress's
+     * to decide: until it does, they're just a reason to wait.
+     *
+     * @param  array<string,mixed>  $server
+     */
+    public static function hasCredentials(array $server): bool
+    {
+        foreach (['HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION', 'PHP_AUTH_USER'] as $key) {
+            if ((string) ($server[$key] ?? '') !== '') {
+                return true;
+            }
+        }
+        parse_str((string) ($server['QUERY_STRING'] ?? ''), $query);
+
+        return (string) ($query['consumer_key'] ?? '') !== '';
     }
 
     /**
