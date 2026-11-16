@@ -101,7 +101,9 @@ An unknown option is an error, so a typo can't leave a default in place.
 On hosts where PHP's error log is the FastCGI stderr stream (Kinsta), every
 `error_log` line is recorded by nginx as `FastCGI sent in stderr` at `[error]`
 level, and the host's fatal matcher flags it, though nothing is a PHP fatal.
-Set `log_file` to a writable path outside the web root and the routine lines
+Set `log_file` to a writable path outside the web root, and outside a release
+directory if you deploy to `releases/<n>/` (a file inside one is gone with the
+next deploy), and the routine lines
 (`Surge`, `IP`, `Subnet limit`, `Escalated`) go there, one per line with a
 timestamp. Failures (`Store error`, `Couldn't add … blocklist`, `Not booted`)
 stay on `error_log`, as does everything if the file can't be written. `log`,
@@ -109,14 +111,14 @@ when set, takes every line and `log_file` is ignored.
 
 ```php
 RateLimiter::boot([
-    'log_file' => dirname(ABSPATH, 2).'/logs/rate-limit.log', // a writable directory
+    'log_file' => '/path/that/survives/deploys/rate-limit.log',
 ]);
 ```
 
-Which directory is writable, and readable for you, is per host. On Kinsta the
-site's `logs/` directory beside `public/` is the likely place, but that is
-unverified here: check it before relying on it. The file is never rotated or
-capped, so rotate it (logrotate, or the host's) on a busy site.
+Which directory is writable, and readable for you, is per host and not
+verified here: on Kinsta check it before relying on it (the code runs from
+`/www/<site>/public/releases/<n>/`, so not beside the code). The file is never
+rotated or capped, so rotate it (logrotate, or the host's) on a busy site.
 
 ## Crawl delay
 
