@@ -71,6 +71,24 @@ class PluginTest extends WP_UnitTestCase
         }
     }
 
+    /** WordPress's requests to its own host carry the self token; others don't. */
+    public function test_requests_to_the_site_itself_get_the_self_header(): void
+    {
+        $instance = new \ReflectionProperty(RateLimiter::class, 'instance');
+        $saved = $instance->getValue();
+        try {
+            $limiter = RateLimiter::boot(['bypass_token' => 'secret', 'store' => new CacheStore]);
+
+            $own = apply_filters('http_request_args', ['headers' => ['Accept' => 'text/html']], site_url('wp-cron.php'));
+            $other = apply_filters('http_request_args', ['headers' => []], 'https://api.example.com/');
+
+            $this->assertSame(['Accept' => 'text/html', RateLimiter::SELF_HEADER => $limiter?->selfToken()], $own['headers']);
+            $this->assertSame([], $other['headers']);
+        } finally {
+            $instance->setValue(null, $saved);
+        }
+    }
+
     private function priority(): ?int
     {
         global $wp_filter;

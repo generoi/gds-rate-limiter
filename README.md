@@ -54,7 +54,8 @@ the site limit of …; each IP gets … a window for …s`, and not per refusal.
 Never limited: logged-in users (a request with a login cookie waits until
 WordPress can check it, then runs first on `plugins_loaded`), `allow`ed
 addresses and ranges, a `rate_limit_bypass` cookie equal to `bypass_token`
-(for e2e runs against production), WP-CLI, and private or reserved addresses.
+(for e2e runs against production), WP-CLI, WordPress's own requests to the
+site (see below), and private or reserved addresses.
 A store that fails lets requests through, and so do options `boot()` can't
 read (logged as `[Rate Limit] Not booted: …`).
 
@@ -161,6 +162,7 @@ wp rate-limit flush         # empty the store
 wp rate-limit block <ip>    # add to the edge blocklists
 wp rate-limit unblock <ip>
 wp rate-limit blocklist
+wp rate-limit token         # the header value for the site's own requests
 ```
 
 `status` and `flush` see Redis and the object cache; APCu lives in the web
@@ -180,6 +182,22 @@ busy (surging, or past half of `site_limit`) it gets a 429 instead, which makes
 the warmer stop its run until the next one. Without a `site_limit` the warmer is
 never held back. Nothing else changes: sage-cachetags knows nothing about the
 limiter, and a site without the warmer never sends the header.
+
+## The site's own requests
+
+WordPress requests its own site for loopbacks (Site Health, the plugin and
+theme editors) and to spawn cron. Those leave through the server's outbound
+address, which on Kinsta is shared with other sites and changes, so they're
+told apart by a header rather than an `allow` entry: the mu-plugin adds
+`X-Rate-Limit-Self` to every `wp_remote_*` request to the site's own host,
+with a token derived from `bypass_token` when it's set and otherwise from
+`AUTH_KEY`. A request carrying it is never limited.
+
+A script that requests the site from the server can send it too:
+
+```sh
+curl -H "X-Rate-Limit-Self: $(wp rate-limit token)" https://example.com/sitemap_index.xml
+```
 
 ## Development
 

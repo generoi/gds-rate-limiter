@@ -119,6 +119,35 @@ class RateLimiterTest extends TestCase
         }
     }
 
+    /** WordPress's own requests are never limited, not even during a surge. */
+    public function test_a_self_request_is_never_limited(): void
+    {
+        $l = $this->limiter(['bypass_token' => 'secret', 'limit' => 100, 'site_limit' => 1, 'surge_limit' => 1]);
+        $self = ['HTTP_X_RATE_LIMIT_SELF' => $l->selfToken()] + self::SERVER;
+        $l->check(['REMOTE_ADDR' => '198.51.100.1'] + self::SERVER);
+        $l->check(['REMOTE_ADDR' => '198.51.100.2'] + self::SERVER);
+        for ($i = 0; $i < 10; $i++) {
+            $l->check($self);
+        }
+
+        $this->assertSame([], $this->responder->rejected);
+        $this->assertSame(0, $l->limiter->count('203.0.113.9'));
+    }
+
+    public function test_the_self_token_is_its_own_and_a_wrong_one_is_counted(): void
+    {
+        $l = $this->limiter(['bypass_token' => 'secret']);
+        $this->assertNotContains($l->selfToken(), ['', 'secret', $l->warmToken()]);
+
+        $l->check(['HTTP_X_RATE_LIMIT_SELF' => 'secret'] + self::SERVER);
+        $l->check(['HTTP_X_RATE_LIMIT_SELF' => $l->warmToken()] + self::SERVER);
+        $this->assertSame(2, $l->limiter->count('203.0.113.9'));
+
+        if (! defined('AUTH_KEY')) {
+            $this->assertSame('', $this->limiter()->selfToken(), 'no token without AUTH_KEY or a bypass_token');
+        }
+    }
+
     public function test_a_login_cookie_waits_for_wordpress_and_a_logged_in_user_passes(): void
     {
         $l = $this->limiter();
