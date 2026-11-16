@@ -144,7 +144,7 @@ final class RateLimiter
             $decision = $this->limiter->hit($ip);
         } catch (\Throwable $e) {
             // A store that breaks lets the request through.
-            $this->log('Store error: '.$e->getMessage());
+            $this->log('Store error: '.$e->getMessage(), failure: true);
 
             return;
         }
@@ -255,19 +255,28 @@ final class RateLimiter
         $any = false;
         foreach ($this->options->edge as $edge) {
             $ok = $edge->block($ip);
-            $this->log($ok ? "Escalated {$ip} to the {$edge->name()} blocklist" : "Couldn't add {$ip} to the {$edge->name()} blocklist");
+            $this->log($ok ? "Escalated {$ip} to the {$edge->name()} blocklist" : "Couldn't add {$ip} to the {$edge->name()} blocklist", failure: ! $ok);
             $any = $any || $ok;
         }
 
         return $any;
     }
 
-    public function log(string $message): void
+    /**
+     * A `failure` is something to look at (a broken store, a refused edge
+     * call) and stays on error_log even with `log_file`; the routine lines
+     * go to the file, so they stay out of the host's error stream.
+     */
+    public function log(string $message, bool $failure = false): void
     {
         $line = "[Rate Limit] {$message}";
         if ($this->options->log !== null) {
             ($this->options->log)($line);
 
+            return;
+        }
+        if (! $failure && $this->options->logFile !== null
+            && @error_log(date('Y-m-d H:i:s ').$line."\n", 3, $this->options->logFile)) {
             return;
         }
         error_log($line);

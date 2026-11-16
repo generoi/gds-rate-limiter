@@ -91,9 +91,34 @@ the page cache.
 | `edge_window` | 1800 | |
 | `crawl_delay` | from `limit` | Seconds robots.txt asks known crawlers to wait; 0 turns it off |
 | `disable` | `false` | |
-| `log` | `error_log` | A callable taking the line |
+| `log` | `error_log` | A callable taking every line |
+| `log_file` | `null` | A file the routine lines are appended to instead of `error_log`; see below |
 
 An unknown option is an error, so a typo can't leave a default in place.
+
+### Log file
+
+On hosts where PHP's error log is the FastCGI stderr stream (Kinsta), every
+`error_log` line is recorded by nginx as `FastCGI sent in stderr` at `[error]`
+level, and the host's fatal matcher flags it, though nothing is a PHP fatal.
+Set `log_file` to a writable path outside the web root, and outside a release
+directory if you deploy to `releases/<n>/` (a file inside one is gone with the
+next deploy), and the routine lines
+(`Surge`, `IP`, `Subnet limit`, `Escalated`) go there, one per line with a
+timestamp. Failures (`Store error`, `Couldn't add … blocklist`, `Not booted`)
+stay on `error_log`, as does everything if the file can't be written. `log`,
+when set, takes every line and `log_file` is ignored.
+
+```php
+RateLimiter::boot([
+    'log_file' => '/path/that/survives/deploys/rate-limit.log',
+]);
+```
+
+Which directory is writable, and readable for you, is per host and not
+verified here: on Kinsta check it before relying on it (the code runs from
+`/www/<site>/public/releases/<n>/`, so not beside the code). The file is never
+rotated or capped, so rotate it (logrotate, or the host's) on a busy site.
 
 ## Crawl delay
 

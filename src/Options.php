@@ -88,6 +88,13 @@ final class Options
     public $log = null;
 
     /**
+     * A file the routine lines (surge, bans, subnet limits, escalations) are
+     * appended to instead of error_log; failures still go to error_log.
+     * Ignored when `log` is set.
+     */
+    public ?string $logFile = null;
+
+    /**
      * @param  array<string,mixed>  $options
      */
     public static function from(array $options): self
@@ -105,6 +112,7 @@ final class Options
                 'allow' => array_values(array_map('strval', (array) $value)),
                 'edge' => array_values((array) $value),
                 'bypassToken' => (string) $value,
+                'logFile' => $value === null || $value === '' ? null : (string) $value,
                 'disable', 'trustApiCredentials' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'store', 'clientIp', 'log' => $value,
                 default => (int) $value,
