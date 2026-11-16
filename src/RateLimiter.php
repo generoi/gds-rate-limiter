@@ -33,7 +33,7 @@ final class RateLimiter
 
     private bool $deferred = false;
 
-    private bool $credentials = false;
+    private bool $awaitsApiAuth = false;
 
     /**
      * Options that can't be read (a typo, a wrong type) are logged and leave
@@ -84,8 +84,8 @@ final class RateLimiter
         if ($this->skipped($cookies)) {
             return;
         }
-        $this->credentials = self::hasCredentials($server);
-        if ($this->options->store->needsWordPress() || self::hasLoginCookie($cookies) || $this->credentials) {
+        $this->awaitsApiAuth = $this->options->trustApiCredentials && self::hasCredentials($server);
+        if ($this->awaitsApiAuth || $this->options->store->needsWordPress() || self::hasLoginCookie($cookies)) {
             $this->deferred = true;
 
             return;
@@ -94,12 +94,12 @@ final class RateLimiter
     }
 
     /**
-     * Left by early() for API credentials: WordPress checks those only on
-     * REST requests, so the mu-plugin waits for the REST API to serve it.
+     * Left by early() for API credentials, which WordPress checks only once
+     * it's serving the REST API.
      */
     public function awaitsApiAuth(): bool
     {
-        return $this->deferred && $this->credentials;
+        return $this->deferred && $this->awaitsApiAuth;
     }
 
     /**

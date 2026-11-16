@@ -185,6 +185,17 @@ class RateLimiterTest extends TestCase
         $this->assertCount(1, $this->responder->rejected);
     }
 
+    public function test_api_credentials_are_counted_when_not_trusted(): void
+    {
+        $l = $this->limiter(['trust_api_credentials' => false]);
+        $basic = self::SERVER + ['HTTP_AUTHORIZATION' => 'Basic eDp5'];
+        for ($i = 0; $i < 3; $i++) {
+            $l->early($basic, []);
+            $this->assertFalse($l->awaitsApiAuth());
+        }
+        $this->assertCount(1, $this->responder->rejected);
+    }
+
     public function test_what_counts_as_api_credentials(): void
     {
         $this->assertTrue(RateLimiter::hasCredentials(['HTTP_AUTHORIZATION' => 'Basic eDp5']));

@@ -83,6 +83,7 @@ the page cache.
 | `surge_for` | 300 | Seconds a surge lasts |
 | `allow` | `[]` | Addresses and CIDR ranges |
 | `bypass_token` | `''` | |
+| `trust_api_credentials` | `true` | REST requests with a valid application password or WooCommerce key aren't limited; `false` counts them |
 | `store` | `ApcuStore` if APCu is on, else `CacheStore` | See below |
 | `client_ip` | `RemoteAddr` | See below |
 | `edge` | `[]` | `Fastly`, `Cloudflare` |
