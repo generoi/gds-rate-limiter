@@ -36,9 +36,13 @@ final class Limiter
         $o = $this->options;
         $now = ($this->clock)();
         $subnet = $o->subnetLimit > 0 ? Ip::subnet($ip) : null;
+        $keys = array_values(array_filter([$ip, $subnet]));
 
-        foreach (array_filter([$ip, $subnet]) as $key) {
-            $retry = $this->retryAfter($key, $now);
+        // The bans and the surge in one read: on Redis, one round trip.
+        $read = $o->store->getMany([...array_map(fn (string $k): string => "{$k}:banned", $keys), 'site:surge']);
+        foreach ($keys as $key) {
+            $until = $read["{$key}:banned"] ?? null;
+            $retry = $until === null ? 0 : max(0, $until - $now);
             if ($retry > 0) {
                 // Counted for the log, which says a ban's 10th, 100th, …
                 // refusal rather than each one; it expires with the ban.
@@ -48,8 +52,10 @@ final class Limiter
             }
         }
 
+        $surging = $o->siteLimit > 0 && ($read['site:surge'] ?? null) !== null;
+
         if ($prefetch) {
-            return $this->prefetch($ip, $now);
+            return $this->prefetch($ip, $surging, $now);
         }
 
         $count = $o->store->increment("{$ip}:count", $o->window);
@@ -77,7 +83,6 @@ final class Limiter
         if ($o->siteLimit <= 0) {
             return new Decision(true, 0, '', $ip, $count);
         }
-        $surging = $o->store->get('site:surge') !== null;
         if ($surging && $count > $o->surgeLimit) {
             return new Decision(false, $o->window, 'surge', $ip, $count);
         }
@@ -95,10 +100,9 @@ final class Limiter
      * that sends it on everything gets `limit` prefetches a window and 429s
      * after, just never a ban.
      */
-    private function prefetch(string $ip, int $now): Decision
+    private function prefetch(string $ip, bool $surging, int $now): Decision
     {
         $o = $this->options;
-        $surging = $o->siteLimit > 0 && $o->store->get('site:surge') !== null;
         if ($surging) {
             return new Decision(false, $o->window, 'prefetch', $ip);
         }

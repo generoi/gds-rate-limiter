@@ -346,6 +346,7 @@ class RateLimiterTest extends TestCase
     {
         $store = $this->createMock(Store::class);
         $store->method('get')->willThrowException(new \RuntimeException('down'));
+        $store->method('getMany')->willThrowException(new \RuntimeException('down'));
         $l = $this->limiter(['store' => $store]);
         $this->requests($l, 5);
 

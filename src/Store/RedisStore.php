@@ -6,6 +6,11 @@ namespace GeneroWP\RateLimiter\Store;
  * Redis through the phpredis extension: shared across servers. It connects
  * on first use, with a short timeout, and a Redis that can't be reached
  * leaves requests unlimited.
+ *
+ * Every command is a round trip (~60 µs to a local Redis), so a request makes
+ * as few as it can: the connection is persistent, kept by the PHP worker
+ * between requests (`persistent: false` opens one per request), a count is
+ * one pipelined round trip, and getMany() one MGET.
  */
 final class RedisStore implements Store
 {
@@ -21,6 +26,7 @@ final class RedisStore implements Store
         private float $timeout = 0.5,
         private string $prefix = 'gds_rate_limit:',
         ?\Redis $client = null,
+        private bool $persistent = true,
     ) {
         $this->redis = $client;
     }
@@ -33,13 +39,39 @@ final class RedisStore implements Store
         }
         try {
             // Created with its TTL in one command, then counted (INCR keeps
-            // the TTL): a key can never be left without one.
-            $redis->set($this->prefix.$key, '0', ['nx', 'ex' => max(1, $ttl)]);
+            // the TTL): a key can never be left without one. Both in one
+            // round trip.
+            $replies = $redis->multi(\Redis::PIPELINE)
+                ->set($this->prefix.$key, '0', ['nx', 'ex' => max(1, $ttl)])
+                ->incr($this->prefix.$key)
+                ->exec();
 
-            return (int) $redis->incr($this->prefix.$key);
+            return is_array($replies) ? (int) ($replies[1] ?? 0) : 0;
         } catch (\RedisException) {
             return 0;
         }
+    }
+
+    public function getMany(array $keys): array
+    {
+        $out = array_fill_keys($keys, null);
+        $redis = $this->redis();
+        if ($redis === null || $keys === []) {
+            return $out;
+        }
+        try {
+            $values = $redis->mGet(array_map(fn (string $k): string => $this->prefix.$k, $keys));
+        } catch (\RedisException) {
+            return $out;
+        }
+        // MGET answers in the keys' order; a missing key is false.
+        $values = is_array($values) ? array_values($values) : [];
+        foreach ($keys as $i => $key) {
+            $value = $values[$i] ?? null;
+            $out[$key] = is_numeric($value) ? (int) $value : null;
+        }
+
+        return $out;
     }
 
     public function get(string $key): ?int
@@ -120,7 +152,14 @@ final class RedisStore implements Store
         }
         try {
             $redis = new \Redis;
-            $redis->connect($this->host, $this->port, $this->timeout);
+            if ($this->persistent) {
+                // Its own persistent id: never the socket of another client
+                // in the worker (an object-cache drop-in) that may SELECT
+                // another database.
+                $redis->pconnect($this->host, $this->port, $this->timeout, "gds_rate_limit:{$this->database}");
+            } else {
+                $redis->connect($this->host, $this->port, $this->timeout);
+            }
             if ($this->password !== null && $this->password !== '') {
                 $redis->auth($this->password);
             }
