@@ -39,6 +39,20 @@ final class ApcuStore implements Store
         return $found ? (int) $value : null;
     }
 
+    public function getMany(array $keys): array
+    {
+        $out = array_fill_keys($keys, null);
+        if (! self::available() || $keys === []) {
+            return $out;
+        }
+        $found = apcu_fetch(array_map(fn (string $k): string => $this->prefix.$k, $keys));
+        foreach (is_array($found) ? $found : [] as $key => $value) {
+            $out[substr((string) $key, strlen($this->prefix))] = (int) $value;
+        }
+
+        return $out;
+    }
+
     public function set(string $key, int $value, int $ttl): void
     {
         if (self::available()) {

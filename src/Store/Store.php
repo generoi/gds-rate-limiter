@@ -17,6 +17,15 @@ interface Store
     /** The stored number, or null. */
     public function get(string $key): ?int;
 
+    /**
+     * Several keys in one read (on Redis, one round trip): key => the stored
+     * number, or null.
+     *
+     * @param  list<string>  $keys
+     * @return array<string,?int>
+     */
+    public function getMany(array $keys): array;
+
     public function set(string $key, int $value, int $ttl): void;
 
     public function delete(string $key): void;

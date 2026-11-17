@@ -44,6 +44,16 @@ final class CacheStore implements Store
         return $value === false ? null : (int) $value;
     }
 
+    public function getMany(array $keys): array
+    {
+        $out = [];
+        foreach ($keys as $key) {
+            $out[$key] = $this->get($key);
+        }
+
+        return $out;
+    }
+
     public function set(string $key, int $value, int $ttl): void
     {
         if (wp_using_ext_object_cache()) {

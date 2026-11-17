@@ -39,6 +39,16 @@ final class MemoryStore implements Store
         return $this->items[$key][0];
     }
 
+    public function getMany(array $keys): array
+    {
+        $out = [];
+        foreach ($keys as $key) {
+            $out[$key] = $this->get($key);
+        }
+
+        return $out;
+    }
+
     public function set(string $key, int $value, int $ttl): void
     {
         $this->items[$key] = [$value, ($this->clock)() + $ttl];
