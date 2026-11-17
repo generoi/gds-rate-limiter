@@ -57,6 +57,33 @@ class RateLimiterTest extends TestCase
         $this->assertSame(['[Rate Limit] IP: 203.0.113.9 | Retry-After: 120s | URI: /recipes/x/ | Method: GET | User-Agent: Crawler/1.0'], $this->logged);
     }
 
+    /** A ban is logged when it starts, then only at its 10th, 100th … refusal. */
+    public function test_a_ban_logs_its_start_and_milestones_not_each_refusal(): void
+    {
+        $l = $this->limiter(['limit' => 1, 'ban' => 3600]);
+        $this->requests($l, 2 + 120);
+
+        $this->assertCount(121, $this->responder->rejected);
+        $this->assertSame([
+            '[Rate Limit] IP: 203.0.113.9 | Retry-After: 3600s | URI: /recipes/x/ | Method: GET | User-Agent: Crawler/1.0',
+            '[Rate Limit] Still banned: 203.0.113.9 | refused 10 times this ban | Retry-After: 3600s',
+            '[Rate Limit] Still banned: 203.0.113.9 | refused 100 times this ban | Retry-After: 3600s',
+        ], $this->logged);
+    }
+
+    /** The count is per ban: the next ban starts again from its own start line. */
+    public function test_the_next_ban_counts_its_refusals_afresh(): void
+    {
+        $l = $this->limiter(['limit' => 1, 'ban' => 100, 'max_ban' => 100]);
+        $this->requests($l, 2 + 10);
+        $this->now += 101;
+        $this->logged = [];
+        $this->requests($l, 2 + 9);
+
+        $this->assertCount(1, $this->logged, 'a new ban start, and 9 refusals is no milestone');
+        $this->assertStringStartsWith('[Rate Limit] IP: 203.0.113.9', $this->logged[0]);
+    }
+
     /** With log_file the routine lines leave error_log; failures and an unwritable file stay on it. */
     public function test_log_file_takes_routine_lines_and_failures_stay_on_error_log(): void
     {

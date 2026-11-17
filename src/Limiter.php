@@ -40,7 +40,11 @@ final class Limiter
         foreach (array_filter([$ip, $subnet]) as $key) {
             $retry = $this->retryAfter($key, $now);
             if ($retry > 0) {
-                return new Decision(false, $retry, 'banned', $key);
+                // Counted for the log, which says a ban's 10th, 100th, …
+                // refusal rather than each one; it expires with the ban.
+                $refused = $o->store->increment("{$key}:refused", $retry);
+
+                return new Decision(false, $retry, 'banned', $key, $refused);
             }
         }
 
