@@ -76,6 +76,14 @@ APCu, Redis and an object cache have; on transients it's best effort, and a
 burst may log a line twice.
 Refused prefetches aren't logged.
 
+A refusal line's `User-Agent` is whatever the client sent, not who it is.
+Scrapers rotate the names of AI assistants and search crawlers from cloud
+addresses, so before reading refusals as a named bot being blocked, check
+where they came from: group them by network, and compare with the ranges the
+bot's operator publishes. An address sending under many names is one client.
+That is also why nothing here is exempted by user agent, only by address
+(`allow`): an exception for a bot's name lets in anyone who claims it.
+
 Never limited: logged-in users (a request with a login cookie waits until
 WordPress can check it, then runs first on `plugins_loaded`), REST requests
 with a valid application password or WooCommerce key (checked last on
