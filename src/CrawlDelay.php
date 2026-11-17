@@ -24,6 +24,8 @@ final class CrawlDelay
         'Bytespider', 'OAI-SearchBot', 'GPTBot', 'ChatGPT-User',
         'Qwantbot', 'TikTokSpider', 'PerplexityBot', 'SeznamBot',
         'AwarioBot', 'AwarioRssBot', 'AwarioSmartBot',
+        'KeenableBot', 'QlyzeBot', 'SERankingBacklinksBot', 'Claude-SearchBot',
+        'Amzn-SearchBot', 'Kimi-SearchBot', 'ExaSearchBot',
     ];
 
     /**
