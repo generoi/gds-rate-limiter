@@ -45,11 +45,21 @@ RateLimiter::boot([
    loses at most a window. Set `site_limit` from the site's own traffic, under
    what its PHP workers can serve; refused requests don't count toward it, so a
    surge ends once the load does.
+6. A prefetch the browser starts by itself (`Sec-Purpose: prefetch`, sent for
+   WordPress core's speculation rules) never bans: refused, it costs the
+   visitor nothing, as the browser loads the page itself on the click. On a
+   phone every touch on a link while scrolling a product grid prefetches it,
+   so a shopper can make 30–50 uncached requests a minute while clicking a
+   few. Prefetches are counted apart, against the same `limit`, so they don't
+   take the shopper's next click over; over it a prefetch gets a 429, and
+   during a surge every one does. A client that fakes the header on everything
+   gets `limit` prefetches a window and 429s after, just no ban.
 
 The 429 has `Retry-After` and `Cache-Control: no-store, private`, and one line
 goes to the PHP error log: `[Rate Limit] IP: … | Retry-After: …s | URI: … | Method: … | User-Agent: …`.
 A surge logs once when it starts, `[Rate Limit] Surge: … requests in …s over
 the site limit of …; each IP gets … a window for …s`, and not per refusal.
+Refused prefetches aren't logged.
 
 Never limited: logged-in users (a request with a login cookie waits until
 WordPress can check it, then runs first on `plugins_loaded`), REST requests

@@ -101,6 +101,29 @@ class RateLimiterTest extends TestCase
         $this->assertSame('surge', $this->responder->rejected[0]->reason);
     }
 
+    /** A prefetch over the limit is answered with a 429, not logged, and bans nothing. */
+    public function test_a_refused_prefetch_is_not_logged_or_banned(): void
+    {
+        $l = $this->limiter();
+        for ($i = 0; $i < 3; $i++) {
+            $l->check(['HTTP_SEC_PURPOSE' => 'prefetch'] + self::SERVER);
+        }
+
+        $this->assertCount(1, $this->responder->rejected);
+        $this->assertSame('prefetch', $this->responder->rejected[0]->reason);
+        $this->assertSame([], $this->logged);
+        $this->assertSame(0, $l->limiter->retryAfter('203.0.113.9'));
+    }
+
+    public function test_what_counts_as_a_prefetch(): void
+    {
+        $this->assertTrue(RateLimiter::isPrefetch(['HTTP_SEC_PURPOSE' => 'prefetch']));
+        $this->assertTrue(RateLimiter::isPrefetch(['HTTP_SEC_PURPOSE' => 'prefetch;prerender']));
+        $this->assertTrue(RateLimiter::isPrefetch(['HTTP_SEC_PURPOSE' => 'Prefetch;anonymous-client-ip']));
+        $this->assertFalse(RateLimiter::isPrefetch(['HTTP_SEC_PURPOSE' => '']));
+        $this->assertFalse(RateLimiter::isPrefetch(self::SERVER));
+    }
+
     /** The cache warmer's requests aren't counted, by IP or site-wide. */
     public function test_a_cache_warm_request_is_not_counted(): void
     {

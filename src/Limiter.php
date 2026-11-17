@@ -15,6 +15,9 @@ use Closure;
  * too; going over starts a surge of `surge_for` seconds, during which each IP
  * gets only `surge_limit` a window. Over that is a 429 until the window ends,
  * not a ban: no doubling, no edge, so a real visitor loses at most a window.
+ *
+ * A prefetch the browser started by itself is counted apart and never bans;
+ * while the site surges it's always refused (see prefetch()).
  */
 final class Limiter
 {
@@ -25,7 +28,10 @@ final class Limiter
         $this->clock = $clock ?? fn (): int => time();
     }
 
-    public function hit(string $ip): Decision
+    /**
+     * @param  bool  $prefetch  the browser asked for it by itself (a prefetch or prerender), not the visitor
+     */
+    public function hit(string $ip, bool $prefetch = false): Decision
     {
         $o = $this->options;
         $now = ($this->clock)();
@@ -36,6 +42,10 @@ final class Limiter
             if ($retry > 0) {
                 return new Decision(false, $retry, 'banned', $key);
             }
+        }
+
+        if ($prefetch) {
+            return $this->prefetch($ip, $now);
         }
 
         $count = $o->store->increment("{$ip}:count", $o->window);
@@ -67,8 +77,45 @@ final class Limiter
         if ($surging && $count > $o->surgeLimit) {
             return new Decision(false, $o->window, 'surge', $ip, $count);
         }
-        // Only what reaches PHP counts, so a crawler's 429s don't keep the
-        // site surging once the load is gone.
+
+        return $this->allow($ip, $count, $surging, $now);
+    }
+
+    /**
+     * A refused prefetch costs the visitor nothing: the browser loads the page
+     * itself when it's clicked. So a prefetch never bans, and while the site
+     * surges each one is refused, which sheds the load no one is waiting on.
+     * It's counted apart from the IP's own requests, against the same
+     * `limit`: a phone prefetching each product it scrolls past mustn't bring
+     * its next click over. The header is the browser's word only, so a client
+     * that sends it on everything gets `limit` prefetches a window and 429s
+     * after, just never a ban.
+     */
+    private function prefetch(string $ip, int $now): Decision
+    {
+        $o = $this->options;
+        $surging = $o->siteLimit > 0 && $o->store->get('site:surge') !== null;
+        if ($surging) {
+            return new Decision(false, $o->window, 'prefetch', $ip);
+        }
+        $count = $o->store->increment("{$ip}:prefetch", $o->window);
+        if ($count > $o->limit) {
+            return new Decision(false, $o->window, 'prefetch', $ip, $count);
+        }
+        if ($o->siteLimit <= 0) {
+            return new Decision(true, 0, '', $ip, $count);
+        }
+
+        return $this->allow($ip, $count, false, $now);
+    }
+
+    /**
+     * Only what reaches PHP counts toward the site, so a crawler's 429s don't
+     * keep the site surging once the load is gone.
+     */
+    private function allow(string $ip, int $count, bool $surging, int $now): Decision
+    {
+        $o = $this->options;
         $site = $o->store->increment('site:count', $o->window);
         if (! $surging && $site > $o->siteLimit) {
             $o->store->set('site:surge', $now + $o->surgeFor, $o->surgeFor);

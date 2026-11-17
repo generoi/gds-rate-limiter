@@ -250,6 +250,55 @@ class LimiterTest extends TestCase
         $this->assertSame(0, $l->surgeLeft());
     }
 
+    /**
+     * A phone prefetching every product it scrolls past: its prefetches are
+     * counted apart, so its own clicks stay under the limit, and a prefetch
+     * over the limit is refused without a ban.
+     */
+    public function test_prefetches_never_ban_and_dont_count_toward_clicks(): void
+    {
+        $l = $this->limiter(['limit' => 3]);
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertTrue($l->hit('203.0.113.9', prefetch: true)->allowed);
+        }
+
+        $d = $l->hit('203.0.113.9', prefetch: true);
+        $this->assertSame([false, 'prefetch', 60], [$d->allowed, $d->reason, $d->retryAfter]);
+        $this->assertSame(0, $l->retryAfter('203.0.113.9'));
+        $this->assertSame(0, $l->bans('203.0.113.9'));
+        $this->hits($l, '203.0.113.9', 3);
+    }
+
+    public function test_a_banned_ip_is_refused_its_prefetches_too(): void
+    {
+        $l = $this->limiter(['limit' => 1]);
+        $l->hit('203.0.113.9');
+        $l->hit('203.0.113.9');
+
+        $this->assertSame('banned', $l->hit('203.0.113.9', prefetch: true)->reason);
+    }
+
+    /** While the site surges every prefetch is refused, and a click still gets surge_limit. */
+    public function test_a_surge_refuses_every_prefetch(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 1, 'surge_limit' => 2]);
+        $l->hit('203.0.113.1');
+        $l->hit('203.0.113.2'); // starts the surge
+
+        $this->assertSame('prefetch', $l->hit('203.0.113.3', prefetch: true)->reason);
+        $this->hits($l, '203.0.113.3', 2);
+    }
+
+    /** An allowed prefetch reaches PHP, so it counts toward the site and can start a surge. */
+    public function test_an_allowed_prefetch_counts_toward_the_site(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 2]);
+        $l->hit('203.0.113.1', prefetch: true);
+        $l->hit('203.0.113.2', prefetch: true);
+
+        $this->assertSame(3, $l->hit('203.0.113.3', prefetch: true)->surgeStarted);
+    }
+
     /** An IP over the normal limit is still banned during a surge. */
     public function test_the_limit_still_bans_during_a_surge(): void
     {
