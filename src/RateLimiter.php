@@ -148,6 +148,17 @@ final class RateLimiter
 
             return;
         }
+        if (($ended = $decision->surgeEnded) !== null) {
+            // Before a start in the same request: the last surge ended first.
+            $this->log(sprintf(
+                'Surge ended: peak %d requests in %ds, refused %d requests from %d IPs over %ds',
+                $ended->peak,
+                $this->options->window,
+                $ended->refused,
+                $ended->ips,
+                $this->options->surgeFor,
+            ));
+        }
         if ($decision->surgeStarted > 0) {
             $this->log(sprintf(
                 'Surge: %d requests in %ds over the site limit of %d; each IP gets %d a window for %ds',

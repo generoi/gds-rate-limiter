@@ -11,6 +11,7 @@ final class Decision
      * @param  string  $reason  '' (allowed), 'banned' (an earlier ban), 'ip' or 'subnet' (this request went over), 'surge' (over surge_limit while the site surges), 'prefetch' (a prefetch over its limit or while the site surges, no ban), 'busy' (a cache-warm request while the site is busy)
      * @param  int  $count  the window's count; for 'banned', the refusals of this ban so far
      * @param  int  $surgeStarted  the site's count when this request started a surge, else 0
+     * @param  ?SurgeEnd  $surgeEnded  the surge that ended before this request, for its one line
      */
     public function __construct(
         public readonly bool $allowed,
@@ -20,5 +21,11 @@ final class Decision
         public readonly int $count = 0,
         public readonly bool $escalate = false,
         public readonly int $surgeStarted = 0,
+        public readonly ?SurgeEnd $surgeEnded = null,
     ) {}
+
+    public function withSurgeEnded(SurgeEnd $ended): self
+    {
+        return new self($this->allowed, $this->retryAfter, $this->reason, $this->key, $this->count, $this->escalate, $this->surgeStarted, $ended);
+    }
 }
