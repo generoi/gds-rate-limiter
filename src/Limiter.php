@@ -39,7 +39,21 @@ final class Limiter
         $keys = array_values(array_filter([$ip, $subnet]));
 
         // The bans and the surge in one read: on Redis, one round trip.
-        $read = $o->store->getMany([...array_map(fn (string $k): string => "{$k}:banned", $keys), 'site:surge']);
+        $read = $o->store->getMany([...array_map(fn (string $k): string => "{$k}:banned", $keys), 'site:surge', 'site:surge:started', 'site:surge:peak']);
+        // Before deciding, which can start the next surge over the last one's keys.
+        $ended = $this->ended($read);
+        $decision = $this->decide($ip, $prefetch, $subnet, $keys, $read, $now);
+
+        return $ended === null ? $decision : $decision->withSurgeEnded($ended);
+    }
+
+    /**
+     * @param  list<string>  $keys  the IP and its subnet
+     * @param  array<string,?int>  $read
+     */
+    private function decide(string $ip, bool $prefetch, ?string $subnet, array $keys, array $read, int $now): Decision
+    {
+        $o = $this->options;
         foreach ($keys as $key) {
             $until = $read["{$key}:banned"] ?? null;
             $retry = $until === null ? 0 : max(0, $until - $now);
@@ -53,9 +67,10 @@ final class Limiter
         }
 
         $surging = $o->siteLimit > 0 && ($read['site:surge'] ?? null) !== null;
+        $started = (int) ($read['site:surge:started'] ?? 0);
 
         if ($prefetch) {
-            return $this->prefetch($ip, $surging, $now);
+            return $this->prefetch($ip, $surging, $started, $now);
         }
 
         $count = $o->store->increment("{$ip}:count", $o->window);
@@ -84,10 +99,12 @@ final class Limiter
             return new Decision(true, 0, '', $ip, $count);
         }
         if ($surging && $count > $o->surgeLimit) {
+            $this->refusedInSurge($ip, $started);
+
             return new Decision(false, $o->window, 'surge', $ip, $count);
         }
 
-        return $this->allow($ip, $count, $surging, $now);
+        return $this->allow($ip, $count, $surging, (int) ($read['site:surge:peak'] ?? 0), $now);
     }
 
     /**
@@ -100,10 +117,12 @@ final class Limiter
      * that sends it on everything gets `limit` prefetches a window and 429s
      * after, just never a ban.
      */
-    private function prefetch(string $ip, bool $surging, int $now): Decision
+    private function prefetch(string $ip, bool $surging, int $started, int $now): Decision
     {
         $o = $this->options;
         if ($surging) {
+            $this->refusedInSurge($ip, $started);
+
             return new Decision(false, $o->window, 'prefetch', $ip);
         }
         $count = $o->store->increment("{$ip}:prefetch", $o->window);
@@ -114,24 +133,83 @@ final class Limiter
             return new Decision(true, 0, '', $ip, $count);
         }
 
-        return $this->allow($ip, $count, false, $now);
+        return $this->allow($ip, $count, false, 0, $now);
     }
 
     /**
      * Only what reaches PHP counts toward the site, so a crawler's 429s don't
-     * keep the site surging once the load is gone.
+     * keep the site surging once the load is gone. While it surges, the
+     * highest window count is kept for the line its end logs: the start's
+     * count is always the one that crossed site_limit, so it says nothing of
+     * how big the surge got.
      */
-    private function allow(string $ip, int $count, bool $surging, int $now): Decision
+    private function allow(string $ip, int $count, bool $surging, int $peak, int $now): Decision
     {
         $o = $this->options;
         $site = $o->store->increment('site:count', $o->window);
         if (! $surging && $site > $o->siteLimit) {
             $o->store->set('site:surge', $now + $o->surgeFor, $o->surgeFor);
+            $o->store->set('site:surge:started', $now, $this->surgeKeep());
+            $o->store->set('site:surge:peak', $site, $this->surgeKeep());
+            foreach (['site:surge:refused', 'site:surge:ips', 'site:surge:ended'] as $key) {
+                $o->store->delete($key);
+            }
 
             return new Decision(true, 0, '', $ip, $count, false, $site);
         }
+        if ($surging && $site > $peak) {
+            // Not atomic: two requests at once may keep the lower count of the
+            // two, one under the peak, which is close enough for a log line.
+            $o->store->set('site:surge:peak', $site, $this->surgeKeep());
+        }
 
         return new Decision(true, 0, '', $ip, $count);
+    }
+
+    /**
+     * A request refused because the site surges: counted, and its IP once,
+     * for the line the surge's end logs.
+     */
+    private function refusedInSurge(string $ip, int $started): void
+    {
+        $o = $this->options;
+        $o->store->increment('site:surge:refused', $this->surgeKeep());
+        if ($o->store->increment("{$ip}:surged:{$started}", $o->surgeFor) === 1) {
+            $o->store->increment('site:surge:ips', $this->surgeKeep());
+        }
+    }
+
+    /**
+     * The surge that ended before this request, once: nothing marks a
+     * surge's end but its key expiring, so the first request after it (or the
+     * one that starts the next) claims the line, and the keys are cleared.
+     *
+     * @param  array<string,?int>  $read
+     */
+    private function ended(array $read): ?SurgeEnd
+    {
+        $o = $this->options;
+        if (($read['site:surge:started'] ?? null) === null || ($read['site:surge'] ?? null) !== null) {
+            return null;
+        }
+        if ($o->store->increment('site:surge:ended', $this->surgeKeep()) !== 1) {
+            return null; // another request claimed it, or the store can't count
+        }
+        $got = $o->store->getMany(['site:surge:refused', 'site:surge:ips']);
+        foreach (['site:surge:started', 'site:surge:peak', 'site:surge:refused', 'site:surge:ips'] as $key) {
+            $o->store->delete($key);
+        }
+
+        return new SurgeEnd((int) ($read['site:surge:peak'] ?? 0), (int) ($got['site:surge:refused'] ?? 0), (int) ($got['site:surge:ips'] ?? 0));
+    }
+
+    /**
+     * How long a surge's own keys stay: past its end, until the next request
+     * comes to log it, on a site quiet for up to a day.
+     */
+    private function surgeKeep(): int
+    {
+        return $this->options->surgeFor + 86400;
     }
 
     /** Seconds left of the site's surge, 0 when it isn't surging. */

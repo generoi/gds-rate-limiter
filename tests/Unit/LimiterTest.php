@@ -225,6 +225,52 @@ class LimiterTest extends TestCase
         $this->assertTrue($l->hit('203.0.113.1')->allowed);
     }
 
+    /**
+     * The first request after a surge carries how it went, once: the highest
+     * window count while it lasted (not the count that crossed site_limit),
+     * and the requests and distinct IPs it refused, prefetches among them.
+     */
+    public function test_a_surge_end_reports_its_peak_and_refusals_once(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 3, 'surge_limit' => 1, 'surge_for' => 120]);
+        foreach (['203.0.113.1', '203.0.113.2', '203.0.113.3'] as $ip) {
+            $l->hit($ip);
+        }
+        $this->assertSame(4, $l->hit('203.0.113.4')->surgeStarted);
+        $this->assertTrue($l->hit('203.0.113.5')->allowed);
+        $this->assertTrue($l->hit('203.0.113.6')->allowed);
+        foreach (['203.0.113.1', '203.0.113.1', '203.0.113.2'] as $ip) {
+            $this->assertSame('surge', $l->hit($ip)->reason);
+        }
+        $this->assertSame('prefetch', $l->hit('203.0.113.7', prefetch: true)->reason);
+        $this->assertNull($l->hit('203.0.113.8')->surgeEnded, 'still surging');
+
+        $this->now += 121;
+        $ended = $l->hit('203.0.113.9')->surgeEnded;
+        $this->assertNotNull($ended);
+        $this->assertSame([7, 4, 3], [$ended->peak, $ended->refused, $ended->ips]);
+        $this->assertNull($l->hit('203.0.113.10')->surgeEnded, 'logged once');
+    }
+
+    /** The next surge counts afresh, its IPs too. */
+    public function test_the_next_surge_counts_afresh(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 1, 'surge_limit' => 1, 'surge_for' => 120]);
+        $l->hit('203.0.113.1');
+        $l->hit('203.0.113.2'); // starts the surge
+        $l->hit('203.0.113.1'); // refused
+        $this->now += 121;
+        $l->hit('203.0.113.3'); // ends it
+
+        $l->hit('203.0.113.4'); // starts the next
+        $this->assertTrue($l->hit('203.0.113.1')->allowed);
+        $this->assertSame('surge', $l->hit('203.0.113.1')->reason, 'refused in the last surge too, counted again');
+        $this->now += 121;
+        $ended = $l->hit('203.0.113.5')->surgeEnded;
+        $this->assertNotNull($ended);
+        $this->assertSame([3, 1, 1], [$ended->peak, $ended->refused, $ended->ips]);
+    }
+
     /** Only what reaches PHP counts: a crawler's 429s don't prolong a surge. */
     public function test_refused_requests_dont_count_toward_the_site(): void
     {

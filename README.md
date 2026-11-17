@@ -62,6 +62,14 @@ make thousands a day): only the 10th, 100th, 1000th …, as `[Rate Limit] Still
 banned: … | refused … times this ban | Retry-After: …s`.
 A surge logs once when it starts, `[Rate Limit] Surge: … requests in …s over
 the site limit of …; each IP gets … a window for …s`, and not per refusal.
+Its count is the request that crossed `site_limit`, so it is always one over:
+how big the surge got is in the line its end logs, `[Rate Limit] Surge ended:
+peak … requests in …s, refused … requests from … IPs over …s`. That is the
+most requests reaching PHP in one window while it lasted, and the requests
+(prefetches too) and distinct IPs `surge_limit` refused. Nothing marks a
+surge's end but its expiry, so the first request after it logs the line,
+however much later. A peak just over `site_limit` with many refused IPs
+suggests ordinary traffic tripped it, and `site_limit` is set too low.
 Refused prefetches aren't logged.
 
 Never limited: logged-in users (a request with a login cookie waits until
@@ -117,7 +125,7 @@ level, and the host's fatal matcher flags it, though nothing is a PHP fatal.
 Set `log_file` to a writable path outside the web root, and outside a release
 directory if you deploy to `releases/<n>/` (a file inside one is gone with the
 next deploy), and the routine lines
-(`Surge`, `IP`, `Subnet limit`, `Escalated`) go there, one per line with a
+(`Surge`, `Surge ended`, `IP`, `Subnet limit`, `Escalated`) go there, one per line with a
 timestamp. Failures (`Store error`, `Couldn't add … blocklist`, `Not booted`)
 stay on `error_log`, as does everything if the file can't be written. `log`,
 when set, takes every line and `log_file` is ignored.

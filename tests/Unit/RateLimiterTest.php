@@ -128,6 +128,23 @@ class RateLimiterTest extends TestCase
         $this->assertSame('surge', $this->responder->rejected[0]->reason);
     }
 
+    /** A surge's end is one line, on the first request after it. */
+    public function test_a_surge_end_is_logged_once(): void
+    {
+        $l = $this->limiter(['limit' => 100, 'site_limit' => 2, 'surge_limit' => 1, 'surge_for' => 300]);
+        foreach (['203.0.113.1', '203.0.113.2', '203.0.113.3', '203.0.113.1'] as $ip) {
+            $l->check(['REMOTE_ADDR' => $ip] + self::SERVER);
+        }
+        $this->now += 301;
+        $l->check(['REMOTE_ADDR' => '203.0.113.4'] + self::SERVER);
+        $l->check(['REMOTE_ADDR' => '203.0.113.5'] + self::SERVER);
+
+        $this->assertSame([
+            '[Rate Limit] Surge: 3 requests in 60s over the site limit of 2; each IP gets 1 a window for 300s',
+            '[Rate Limit] Surge ended: peak 3 requests in 60s, refused 1 requests from 1 IPs over 300s',
+        ], $this->logged);
+    }
+
     /** A prefetch over the limit is answered with a 429, not logged, and bans nothing. */
     public function test_a_refused_prefetch_is_not_logged_or_banned(): void
     {
