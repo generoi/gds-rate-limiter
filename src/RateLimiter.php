@@ -141,7 +141,7 @@ final class RateLimiter
         }
 
         try {
-            $decision = $this->limiter->hit($ip);
+            $decision = $this->limiter->hit($ip, self::isPrefetch($server));
         } catch (\Throwable $e) {
             // A store that breaks lets the request through.
             $this->log('Store error: '.$e->getMessage(), failure: true);
@@ -161,9 +161,9 @@ final class RateLimiter
         if ($decision->allowed) {
             return;
         }
-        if ($decision->reason === 'surge') {
+        if ($decision->reason === 'surge' || $decision->reason === 'prefetch') {
             // Not logged per request: a surge is many of them, and its start
-            // is logged once.
+            // is logged once; a refused prefetch costs the visitor nothing.
             $this->responder->reject($decision, null);
 
             return;
@@ -313,6 +313,18 @@ final class RateLimiter
         parse_str((string) ($server['QUERY_STRING'] ?? ''), $query);
 
         return (string) ($query['consumer_key'] ?? '') !== '';
+    }
+
+    /**
+     * A prefetch or prerender the browser started by itself: speculation
+     * rules (WordPress core adds them) and `<link rel="prefetch">` send
+     * `Sec-Purpose: prefetch`, a prerender `prefetch;prerender`.
+     *
+     * @param  array<string,mixed>  $server
+     */
+    public static function isPrefetch(array $server): bool
+    {
+        return str_starts_with(strtolower(trim((string) ($server['HTTP_SEC_PURPOSE'] ?? ''))), 'prefetch');
     }
 
     /**
