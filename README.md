@@ -55,8 +55,11 @@ RateLimiter::boot([
    during a surge every one does. A client that fakes the header on everything
    gets `limit` prefetches a window and 429s after, just no ban.
 
-The 429 has `Retry-After` and `Cache-Control: no-store, private`, and one line
-goes to the PHP error log: `[Rate Limit] IP: … | Retry-After: …s | URI: … | Method: … | User-Agent: …`.
+The 429 has `Retry-After` and `Cache-Control: no-store, private`. A ban logs
+one line to the PHP error log when it starts: `[Rate Limit] IP: … | Retry-After: …s | URI: … | Method: … | User-Agent: …`.
+The requests refused while it lasts aren't logged one by one (a scanner can
+make thousands a day): only the 10th, 100th, 1000th …, as `[Rate Limit] Still
+banned: … | refused … times this ban | Retry-After: …s`.
 A surge logs once when it starts, `[Rate Limit] Surge: … requests in …s over
 the site limit of …; each IP gets … a window for …s`, and not per refusal.
 Refused prefetches aren't logged.

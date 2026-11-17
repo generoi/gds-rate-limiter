@@ -169,6 +169,23 @@ final class RateLimiter
             return;
         }
 
+        if ($decision->reason === 'banned') {
+            // A ban is logged when it starts; after that only its 10th, 100th,
+            // 1000th … refusal, which says how hard a client keeps at it
+            // without a line per request (thousands a day from one scanner).
+            if (self::milestone($decision->count)) {
+                $this->log(sprintf(
+                    'Still banned: %s%s | refused %d times this ban | Retry-After: %ds',
+                    $ip,
+                    $decision->key !== $ip ? " ({$decision->key})" : '',
+                    $decision->count,
+                    $decision->retryAfter,
+                ));
+            }
+            $this->responder->reject($decision, null);
+
+            return;
+        }
         if ($decision->reason === 'subnet') {
             $this->log(sprintf('Subnet limit: %s (%d/%ds), %ds ban', $decision->key, $decision->count, $this->options->window, $decision->retryAfter));
         }
@@ -338,6 +355,18 @@ final class RateLimiter
         $token = $this->options->bypassToken;
 
         return $token !== '' && hash_equals($token, (string) ($cookies['rate_limit_bypass'] ?? ''));
+    }
+
+    /** 10, 100, 1000 …: the refusals of a ban that are logged. */
+    private static function milestone(int $n): bool
+    {
+        for ($m = 10; $m <= $n; $m *= 10) {
+            if ($m === $n) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function printable(string $value, int $max): string

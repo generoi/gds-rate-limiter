@@ -9,6 +9,7 @@ final class Decision
 {
     /**
      * @param  string  $reason  '' (allowed), 'banned' (an earlier ban), 'ip' or 'subnet' (this request went over), 'surge' (over surge_limit while the site surges), 'prefetch' (a prefetch over its limit or while the site surges, no ban), 'busy' (a cache-warm request while the site is busy)
+     * @param  int  $count  the window's count; for 'banned', the refusals of this ban so far
      * @param  int  $surgeStarted  the site's count when this request started a surge, else 0
      */
     public function __construct(
