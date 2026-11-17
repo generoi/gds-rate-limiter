@@ -2,10 +2,12 @@
 
 namespace GeneroWP\RateLimiter\Tests\Unit;
 
+use GeneroWP\RateLimiter\Decision;
 use GeneroWP\RateLimiter\Edge\Edge;
 use GeneroWP\RateLimiter\Limiter;
 use GeneroWP\RateLimiter\Options;
 use GeneroWP\RateLimiter\Tests\Support\MemoryStore;
+use GeneroWP\RateLimiter\Tests\Support\RacingStore;
 use PHPUnit\Framework\TestCase;
 
 class LimiterTest extends TestCase
@@ -250,6 +252,47 @@ class LimiterTest extends TestCase
         $this->assertNotNull($ended);
         $this->assertSame([7, 4, 3], [$ended->peak, $ended->refused, $ended->ips]);
         $this->assertNull($l->hit('203.0.113.10')->surgeEnded, 'logged once');
+    }
+
+    /**
+     * Two workers crossing site_limit at once, each having read "no surge":
+     * one starts it, the other doesn't, so its start is logged once.
+     */
+    public function test_a_surge_starts_once_when_two_requests_cross_at_once(): void
+    {
+        $store = new RacingStore(new MemoryStore(fn (): int => $this->now), 'site:count');
+        $l = new Limiter(Options::from(['limit' => 100, 'site_limit' => 2, 'surge_limit' => 1, 'store' => $store]), fn (): int => $this->now);
+        $l->hit('203.0.113.1');
+        $l->hit('203.0.113.2');
+
+        $other = null;
+        $store->race(function () use ($l, &$other): void {
+            $other = $l->hit('203.0.113.4'); // between this request's read and its count
+        });
+        $this->assertInstanceOf(Decision::class, $d = $l->hit('203.0.113.3'));
+        $this->assertInstanceOf(Decision::class, $other);
+
+        $this->assertSame(1, (int) ($d->surgeStarted > 0) + (int) ($other->surgeStarted > 0), 'one start');
+        $this->assertGreaterThan(0, $l->surgeLeft());
+    }
+
+    /** Two workers both first after a surge: one of them carries its end. */
+    public function test_a_surge_end_is_claimed_once_when_two_requests_race(): void
+    {
+        $store = new RacingStore(new MemoryStore(fn (): int => $this->now), 'site:surge:ended');
+        $l = new Limiter(Options::from(['limit' => 100, 'site_limit' => 1, 'surge_limit' => 1, 'surge_for' => 120, 'store' => $store]), fn (): int => $this->now);
+        $l->hit('203.0.113.1');
+        $l->hit('203.0.113.2'); // starts the surge
+        $this->now += 121;
+
+        $other = null;
+        $store->race(function () use ($l, &$other): void {
+            $other = $l->hit('203.0.113.4');
+        });
+        $this->assertInstanceOf(Decision::class, $d = $l->hit('203.0.113.3'));
+        $this->assertInstanceOf(Decision::class, $other);
+
+        $this->assertSame(1, (int) ($d->surgeEnded !== null) + (int) ($other->surgeEnded !== null), 'one end');
     }
 
     /** The next surge counts afresh, its IPs too. */

@@ -148,10 +148,18 @@ final class Limiter
         $o = $this->options;
         $site = $o->store->increment('site:count', $o->window);
         if (! $surging && $site > $o->siteLimit) {
+            // Requests crossing at once in other workers each read "no surge"
+            // too: the one whose claim counts 1 starts it, so it starts and
+            // is logged once. Its TTL is the surge's, so the next crossing
+            // after it claims afresh. Atomic on APCu, Redis and an object
+            // cache; on transients, best effort.
+            if ($o->store->increment('site:surge:claim', $o->surgeFor) !== 1) {
+                return new Decision(true, 0, '', $ip, $count);
+            }
             $o->store->set('site:surge', $now + $o->surgeFor, $o->surgeFor);
             $o->store->set('site:surge:started', $now, $this->surgeKeep());
             $o->store->set('site:surge:peak', $site, $this->surgeKeep());
-            foreach (['site:surge:refused', 'site:surge:ips', 'site:surge:ended'] as $key) {
+            foreach (['site:surge:refused', 'site:surge:ips'] as $key) {
                 $o->store->delete($key);
             }
 
@@ -189,10 +197,13 @@ final class Limiter
     private function ended(array $read): ?SurgeEnd
     {
         $o = $this->options;
-        if (($read['site:surge:started'] ?? null) === null || ($read['site:surge'] ?? null) !== null) {
+        $started = $read['site:surge:started'] ?? null;
+        if ($started === null || ($read['site:surge'] ?? null) !== null) {
             return null;
         }
-        if ($o->store->increment('site:surge:ended', $this->surgeKeep()) !== 1) {
+        // Claimed per surge: a request that read this one's keys late can't
+        // claim the next surge's end.
+        if ($o->store->increment("site:surge:ended:{$started}", $this->surgeKeep()) !== 1) {
             return null; // another request claimed it, or the store can't count
         }
         $got = $o->store->getMany(['site:surge:refused', 'site:surge:ips']);

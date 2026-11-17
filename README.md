@@ -70,6 +70,10 @@ most requests reaching PHP in one window while it lasted, and the requests
 surge's end but its expiry, so the first request after it logs the line,
 however much later. A peak just over `site_limit` with many refused IPs
 suggests ordinary traffic tripped it, and `site_limit` is set too low.
+Requests crossing at once in several workers start one surge and log each
+line once: the start and the end are claimed with an atomic increment, which
+APCu, Redis and an object cache have; on transients it's best effort, and a
+burst may log a line twice.
 Refused prefetches aren't logged.
 
 Never limited: logged-in users (a request with a login cookie waits until
